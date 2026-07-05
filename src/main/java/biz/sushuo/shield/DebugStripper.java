@@ -2,6 +2,7 @@ package biz.sushuo.shield;
 
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.InnerClassNode;
 import org.objectweb.asm.tree.LineNumberNode;
 import org.objectweb.asm.tree.MethodNode;
 
@@ -12,6 +13,11 @@ final class DebugStripper {
     static void strip(ClassNode classNode) {
         classNode.sourceFile = null;
         classNode.sourceDebug = null;
+        if (classNode.innerClasses != null) {
+            for (InnerClassNode innerClass : classNode.innerClasses) {
+                innerClass.innerName = null;
+            }
+        }
         for (MethodNode method : classNode.methods) {
             method.localVariables = null;
             method.visibleLocalVariableAnnotations = null;

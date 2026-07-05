@@ -33,6 +33,9 @@ final class ResourceRewriter {
             Map<String, String> classNames,
             ObfuscationOptions options
     ) {
+        if (options.minecraftMode() && MinecraftProtector.preserveResourceText(name)) {
+            return bytes;
+        }
         byte[] rewritten = bytes;
         if (isManifest(name)) {
             rewritten = rewriteManifest(rewritten, classNames);

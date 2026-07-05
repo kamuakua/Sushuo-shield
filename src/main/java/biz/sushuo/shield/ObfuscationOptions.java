@@ -3,7 +3,9 @@ package biz.sushuo.shield;
 import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 record ObfuscationOptions(
         Path input,
@@ -19,7 +21,9 @@ record ObfuscationOptions(
         boolean virtualize,
         boolean controlFlow,
         boolean stripDebug,
-        boolean rewriteTextResources
+        boolean rewriteTextResources,
+        boolean requireNativeVm,
+        boolean minecraftMode
 ) {
     static Builder builder() {
         return new Builder();
@@ -50,6 +54,24 @@ record ObfuscationOptions(
         return value.matches(regex);
     }
 
+    ObfuscationOptions withAdditionalExcludes(List<String> additionalExcludes) {
+        if (additionalExcludes.isEmpty()) {
+            return this;
+        }
+        Set<String> merged = new LinkedHashSet<>(excludes);
+        merged.addAll(additionalExcludes);
+        return new ObfuscationOptions(input, output, seed, List.copyOf(merged), namePrefix,
+                renameClasses, renameMembers, renamePublicMembers, encryptStrings,
+                obfuscateNumbers, virtualize, controlFlow, stripDebug, rewriteTextResources, requireNativeVm, minecraftMode);
+    }
+
+    ObfuscationOptions withClassTransforms(boolean encryptStrings, boolean obfuscateNumbers,
+                                           boolean virtualize, boolean controlFlow) {
+        return new ObfuscationOptions(input, output, seed, excludes, namePrefix,
+                renameClasses, renameMembers, renamePublicMembers, encryptStrings,
+                obfuscateNumbers, virtualize, controlFlow, stripDebug, rewriteTextResources, requireNativeVm, minecraftMode);
+    }
+
     static final class Builder {
         private Path input;
         private Path output;
@@ -65,6 +87,8 @@ record ObfuscationOptions(
         private boolean controlFlow = true;
         private boolean stripDebug = true;
         private boolean rewriteTextResources = true;
+        private boolean requireNativeVm;
+        private boolean minecraftMode;
 
         Builder input(Path input) {
             this.input = input;
@@ -136,13 +160,23 @@ record ObfuscationOptions(
             return this;
         }
 
+        Builder requireNativeVm(boolean requireNativeVm) {
+            this.requireNativeVm = requireNativeVm;
+            return this;
+        }
+
+        Builder minecraftMode(boolean minecraftMode) {
+            this.minecraftMode = minecraftMode;
+            return this;
+        }
+
         ObfuscationOptions build() {
             if (input == null || output == null) {
                 throw new UsageException("Input/output jar is required.");
             }
             return new ObfuscationOptions(input, output, seed, excludes, namePrefix,
                     renameClasses, renameMembers, renamePublicMembers, encryptStrings,
-                    obfuscateNumbers, virtualize, controlFlow, stripDebug, rewriteTextResources);
+                    obfuscateNumbers, virtualize, controlFlow, stripDebug, rewriteTextResources, requireNativeVm, minecraftMode);
         }
     }
 }

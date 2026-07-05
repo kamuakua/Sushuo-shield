@@ -6,10 +6,12 @@ import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.Remapper;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.FrameNode;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.IntInsnNode;
+import org.objectweb.asm.tree.JumpInsnNode;
 import org.objectweb.asm.tree.LabelNode;
 import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.LineNumberNode;
@@ -19,9 +21,12 @@ import org.objectweb.asm.tree.TypeInsnNode;
 import org.objectweb.asm.tree.VarInsnNode;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 final class Virtualizer implements Opcodes {
@@ -30,29 +35,45 @@ final class Virtualizer implements Opcodes {
     private Virtualizer() {
     }
 
-    static void virtualize(ClassNode classNode, String runtimeClassName, Remapper remapper, TransformStats stats) {
+    static void virtualize(
+            ClassNode classNode,
+            String runtimeClassName,
+            Remapper remapper,
+            Set<String> projectClasses,
+            long seed,
+            boolean nativeOnly,
+            VmPayloadResources vmPayloadResources,
+            TransformStats stats
+    ) {
         List<MethodNode> extraMethods = new ArrayList<>();
         for (MethodNode method : classNode.methods) {
-            VirtualProgram program = tryCompile(classNode, method, remapper);
+            VirtualProgram program = tryCompile(classNode, method, remapper, projectClasses, seed);
             if (program == null) {
                 continue;
             }
+            if (nativeOnly && vmPayloadResources != null) {
+                program = program.withResourceName(vmPayloadResources.add(program, classNode.name, method.name, method.desc));
+            }
             String dataMethodName = "_vp$" + program.id();
-            extraMethods.add(VirtualProgramEmitter.createProgramMethod(classNode.name, dataMethodName, program));
+            extraMethods.add(VirtualProgramEmitter.createProgramMethod(
+                    classNode.name, dataMethodName, program, nativeOnly, runtimeClassName));
             replaceBody(method, runtimeClassName, classNode.name, dataMethodName, program);
             stats.addVirtualizedMethod(program.code().length);
         }
         classNode.methods.addAll(extraMethods);
     }
 
-    private static VirtualProgram tryCompile(ClassNode classNode, MethodNode method, Remapper remapper) {
+    private static VirtualProgram tryCompile(
+            ClassNode classNode,
+            MethodNode method,
+            Remapper remapper,
+            Set<String> projectClasses,
+            long seed
+    ) {
         if ((method.access & (ACC_ABSTRACT | ACC_NATIVE)) != 0) {
             return null;
         }
-        if ((method.access & ACC_STATIC) == 0) {
-            return null;
-        }
-        if (method.name.equals("<clinit>") || method.name.equals("main")) {
+        if (method.name.equals("<init>") || method.name.equals("<clinit>") || method.name.equals("main")) {
             return null;
         }
         if (method.tryCatchBlocks != null && !method.tryCatchBlocks.isEmpty()) {
@@ -68,7 +89,7 @@ final class Virtualizer implements Opcodes {
             }
         }
 
-        Compiler compiler = new Compiler(classNode.name, method, remapper);
+        Compiler compiler = new Compiler(classNode.name, method, remapper, projectClasses, seed);
         return compiler.compile();
     }
 
@@ -100,6 +121,13 @@ final class Virtualizer implements Opcodes {
         body.add(new TypeInsnNode(ANEWARRAY, "java/lang/Object"));
 
         int local = 0;
+        if ((method.access & ACC_STATIC) == 0) {
+            body.add(new InsnNode(DUP));
+            pushInt(body, local);
+            body.add(new VarInsnNode(ALOAD, local));
+            body.add(new InsnNode(AASTORE));
+            local++;
+        }
         for (int i = 0; i < arguments.length; i++) {
             Type argument = arguments[i];
             body.add(new InsnNode(DUP));
@@ -209,14 +237,20 @@ final class Virtualizer implements Opcodes {
         private final String owner;
         private final MethodNode method;
         private final Remapper remapper;
+        private final Set<String> projectClasses;
+        private final long seed;
         private final List<Integer> code = new ArrayList<>();
         private final List<Object> constants = new ArrayList<>();
         private final Map<Object, Integer> constantPool = new HashMap<>();
+        private final Map<LabelNode, Integer> labels = new HashMap<>();
+        private final List<JumpFixup> jumpFixups = new ArrayList<>();
 
-        private Compiler(String owner, MethodNode method, Remapper remapper) {
+        private Compiler(String owner, MethodNode method, Remapper remapper, Set<String> projectClasses, long seed) {
             this.owner = owner;
             this.method = method;
             this.remapper = remapper;
+            this.projectClasses = projectClasses;
+            this.seed = seed;
         }
 
         private VirtualProgram compile() {
@@ -225,17 +259,28 @@ final class Virtualizer implements Opcodes {
                     return null;
                 }
             }
+            if (!resolveJumps()) {
+                return null;
+            }
 
             Type returnType = Type.getMethodType(method.desc).getReturnType();
             int returnKind = returnKind(returnType);
-            return new VirtualProgram(NEXT_ID.getAndIncrement(), method.maxLocals,
+            int id = NEXT_ID.getAndIncrement();
+            int key = programKey(owner, method, id, seed);
+            int[] opcodeMap = opcodeMap(key);
+            return new VirtualProgram(id, method.maxLocals,
                     Type.getArgumentTypes(method.desc).length, returnKind,
-                    code.stream().mapToInt(Integer::intValue).toArray(),
-                    List.copyOf(constants));
+                    mapOpcodes(code.stream().mapToInt(Integer::intValue).toArray(), opcodeMap),
+                    new ArrayList<>(constants), key, opcodeMap,
+                    remapper.map(owner), remapper.mapMethodName(owner, method.name, method.desc), null);
         }
 
         private boolean compileInstruction(AbstractInsnNode instruction) {
-            if (instruction instanceof LabelNode || instruction instanceof FrameNode || instruction instanceof LineNumberNode) {
+            if (instruction instanceof LabelNode label) {
+                labels.put(label, code.size());
+                return true;
+            }
+            if (instruction instanceof FrameNode || instruction instanceof LineNumberNode) {
                 return true;
             }
             return switch (instruction.getOpcode()) {
@@ -285,6 +330,9 @@ final class Virtualizer implements Opcodes {
                 case IXOR -> emitOp(VirtualOp.IXOR);
                 case IAND -> emitOp(VirtualOp.IAND);
                 case IOR -> emitOp(VirtualOp.IOR);
+                case ISHL -> emitOp(VirtualOp.ISHL);
+                case ISHR -> emitOp(VirtualOp.ISHR);
+                case IUSHR -> emitOp(VirtualOp.IUSHR);
                 case LADD -> emitOp(VirtualOp.LADD);
                 case LSUB -> emitOp(VirtualOp.LSUB);
                 case LMUL -> emitOp(VirtualOp.LMUL);
@@ -292,6 +340,9 @@ final class Virtualizer implements Opcodes {
                 case LREM -> emitOp(VirtualOp.LREM);
                 case LNEG -> emitOp(VirtualOp.LNEG);
                 case LXOR -> emitOp(VirtualOp.LXOR);
+                case LSHL -> emitOp(VirtualOp.LSHL);
+                case LSHR -> emitOp(VirtualOp.LSHR);
+                case LUSHR -> emitOp(VirtualOp.LUSHR);
                 case FADD -> emitOp(VirtualOp.FADD);
                 case FSUB -> emitOp(VirtualOp.FSUB);
                 case FMUL -> emitOp(VirtualOp.FMUL);
@@ -316,11 +367,30 @@ final class Virtualizer implements Opcodes {
                 case D2I -> emitOp(VirtualOp.D2I);
                 case D2L -> emitOp(VirtualOp.D2L);
                 case D2F -> emitOp(VirtualOp.D2F);
+                case I2B -> emitOp(VirtualOp.I2B);
+                case I2C -> emitOp(VirtualOp.I2C);
+                case I2S -> emitOp(VirtualOp.I2S);
+                case LCMP -> emitOp(VirtualOp.LCMP);
+                case FCMPL -> emitOp(VirtualOp.FCMPL);
+                case FCMPG -> emitOp(VirtualOp.FCMPG);
+                case DCMPL -> emitOp(VirtualOp.DCMPL);
+                case DCMPG -> emitOp(VirtualOp.DCMPG);
+                case IINC -> {
+                    org.objectweb.asm.tree.IincInsnNode iinc = (org.objectweb.asm.tree.IincInsnNode) instruction;
+                    emit(VirtualOp.IINC, iinc.var, iinc.incr);
+                    yield true;
+                }
                 case IRETURN, LRETURN, FRETURN, DRETURN, ARETURN, RETURN -> {
                     emit(VirtualOp.RETURN);
                     yield true;
                 }
                 case INVOKESTATIC -> emitInvokeStatic((MethodInsnNode) instruction);
+                case INVOKEVIRTUAL, INVOKEINTERFACE, INVOKESPECIAL -> emitInvoke((MethodInsnNode) instruction);
+                case GETSTATIC, PUTSTATIC, GETFIELD, PUTFIELD -> emitField((FieldInsnNode) instruction);
+                case CHECKCAST, INSTANCEOF -> emitType((TypeInsnNode) instruction);
+                case GOTO, IFEQ, IFNE, IFLT, IFGE, IFGT, IFLE,
+                        IF_ICMPEQ, IF_ICMPNE, IF_ICMPLT, IF_ICMPGE, IF_ICMPGT, IF_ICMPLE,
+                        IF_ACMPEQ, IF_ACMPNE, IFNULL, IFNONNULL -> emitJump((JumpInsnNode) instruction);
                 default -> false;
             };
         }
@@ -362,6 +432,95 @@ final class Virtualizer implements Opcodes {
             return true;
         }
 
+        private boolean emitInvoke(MethodInsnNode instruction) {
+            if (instruction.name.equals("<init>")) {
+                return false;
+            }
+            if (instruction.getOpcode() == INVOKESPECIAL && !instruction.owner.equals(owner)) {
+                return false;
+            }
+            Type methodType = Type.getMethodType(instruction.desc);
+            for (Type argument : methodType.getArgumentTypes()) {
+                if (!isSupportedArgument(argument)) {
+                    return false;
+                }
+            }
+            if (!isSupportedReturn(methodType.getReturnType())) {
+                return false;
+            }
+            String mappedOwner = remapper.map(instruction.owner);
+            String mappedName = remapper.mapMethodName(instruction.owner, instruction.name, instruction.desc);
+            String mappedDescriptor = remapper.mapMethodDesc(instruction.desc);
+            emit(VirtualOp.INVOKE, constant(mappedOwner), constant(mappedName),
+                    constant(mappedDescriptor), methodType.getArgumentTypes().length, instruction.getOpcode());
+            return true;
+        }
+
+        private boolean emitField(FieldInsnNode instruction) {
+            Type type = Type.getType(instruction.desc);
+            if (!isSupportedArgument(type)) {
+                return false;
+            }
+            String mappedOwner = remapper.map(instruction.owner);
+            String mappedName = remapper.mapFieldName(instruction.owner, instruction.name, instruction.desc);
+            String mappedDescriptor = remapper.mapDesc(instruction.desc);
+            int virtualOpcode = switch (instruction.getOpcode()) {
+                case GETSTATIC -> VirtualOp.GET_STATIC;
+                case PUTSTATIC -> VirtualOp.PUT_STATIC;
+                case GETFIELD -> VirtualOp.GET_FIELD;
+                case PUTFIELD -> VirtualOp.PUT_FIELD;
+                default -> throw new IllegalArgumentException("Bad field opcode " + instruction.getOpcode());
+            };
+            emit(virtualOpcode, constant(mappedOwner), constant(mappedName), constant(mappedDescriptor));
+            return true;
+        }
+
+        private boolean emitType(TypeInsnNode instruction) {
+            if (instruction.desc == null || instruction.desc.isEmpty()) {
+                return false;
+            }
+            emit(instruction.getOpcode() == CHECKCAST ? VirtualOp.CHECKCAST : VirtualOp.INSTANCEOF,
+                    constant(remapper.mapType(instruction.desc)));
+            return true;
+        }
+
+        private boolean emitJump(JumpInsnNode instruction) {
+            int virtualOpcode = switch (instruction.getOpcode()) {
+                case GOTO -> VirtualOp.GOTO;
+                case IFEQ -> VirtualOp.IFEQ;
+                case IFNE -> VirtualOp.IFNE;
+                case IFLT -> VirtualOp.IFLT;
+                case IFGE -> VirtualOp.IFGE;
+                case IFGT -> VirtualOp.IFGT;
+                case IFLE -> VirtualOp.IFLE;
+                case IF_ICMPEQ -> VirtualOp.IF_ICMPEQ;
+                case IF_ICMPNE -> VirtualOp.IF_ICMPNE;
+                case IF_ICMPLT -> VirtualOp.IF_ICMPLT;
+                case IF_ICMPGE -> VirtualOp.IF_ICMPGE;
+                case IF_ICMPGT -> VirtualOp.IF_ICMPGT;
+                case IF_ICMPLE -> VirtualOp.IF_ICMPLE;
+                case IF_ACMPEQ -> VirtualOp.IF_ACMPEQ;
+                case IF_ACMPNE -> VirtualOp.IF_ACMPNE;
+                case IFNULL -> VirtualOp.IFNULL;
+                case IFNONNULL -> VirtualOp.IFNONNULL;
+                default -> throw new IllegalArgumentException("Bad jump opcode " + instruction.getOpcode());
+            };
+            emit(virtualOpcode, 0);
+            jumpFixups.add(new JumpFixup(code.size() - 1, instruction.label));
+            return true;
+        }
+
+        private boolean resolveJumps() {
+            for (JumpFixup fixup : jumpFixups) {
+                Integer target = labels.get(fixup.target());
+                if (target == null) {
+                    return false;
+                }
+                code.set(fixup.operandIndex(), target);
+            }
+            return true;
+        }
+
         private boolean emitConst(Object value) {
             emit(VirtualOp.PUSH_CONST, constant(value));
             return true;
@@ -400,11 +559,56 @@ final class Virtualizer implements Opcodes {
                 default -> VirtualProgram.RETURN_INT;
             };
         }
+
+        private static int programKey(String owner, MethodNode method, int id, long seed) {
+            int key = mix((int) seed) ^ mix((int) (seed >>> 32)) ^ 0x6D2B79F5;
+            key = mix(key ^ owner.hashCode());
+            key = mix(key ^ method.name.hashCode());
+            key = mix(key ^ method.desc.hashCode());
+            key = mix(key ^ id);
+            return key == 0 ? 0x13579BDF : key;
+        }
+
+        private static int mix(int value) {
+            value ^= value >>> 16;
+            value *= 0x7FEB352D;
+            value ^= value >>> 15;
+            value *= 0x846CA68B;
+            value ^= value >>> 16;
+            return value;
+        }
+
+        private static int[] opcodeMap(int key) {
+            int[] logicalOpcodes = VirtualOp.logicalOpcodes();
+            List<Integer> physicalOpcodes = new ArrayList<>(logicalOpcodes.length);
+            for (int opcode : logicalOpcodes) {
+                physicalOpcodes.add(opcode);
+            }
+            Collections.shuffle(physicalOpcodes, new Random(key ^ 0x51ED270B));
+            int[] map = new int[VirtualOp.MAX_OPCODE + 1];
+            for (int i = 0; i < logicalOpcodes.length; i++) {
+                map[logicalOpcodes[i]] = physicalOpcodes.get(i);
+            }
+            return map;
+        }
+
+        private static int[] mapOpcodes(int[] code, int[] opcodeMap) {
+            int[] mapped = code.clone();
+            for (int i = 0; i < mapped.length; ) {
+                int opcode = mapped[i];
+                mapped[i++] = opcodeMap[opcode];
+                i += VirtualOp.operandCount(opcode);
+            }
+            return mapped;
+        }
     }
 
     private record ConstantKey(Object value, String type) {
         static ConstantKey of(Object value) {
             return new ConstantKey(value, value == null ? "null" : value.getClass().getName());
         }
+    }
+
+    private record JumpFixup(int operandIndex, LabelNode target) {
     }
 }

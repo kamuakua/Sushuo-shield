@@ -6,6 +6,7 @@ final class TransformStats {
     private int controlFlowGuards;
     private int virtualizedMethods;
     private int virtualizedInstructions;
+    private int sizeFallbackClasses;
 
     void addEncryptedStrings(int count) {
         encryptedStrings += count;
@@ -22,6 +23,19 @@ final class TransformStats {
     void addVirtualizedMethod(int instructionCount) {
         virtualizedMethods++;
         virtualizedInstructions += instructionCount;
+    }
+
+    void addSizeFallbackClass() {
+        sizeFallbackClasses++;
+    }
+
+    void add(TransformStats other) {
+        encryptedStrings += other.encryptedStrings;
+        obfuscatedNumbers += other.obfuscatedNumbers;
+        controlFlowGuards += other.controlFlowGuards;
+        virtualizedMethods += other.virtualizedMethods;
+        virtualizedInstructions += other.virtualizedInstructions;
+        sizeFallbackClasses += other.sizeFallbackClasses;
     }
 
     int encryptedStrings() {
@@ -42,5 +56,9 @@ final class TransformStats {
 
     int virtualizedInstructions() {
         return virtualizedInstructions;
+    }
+
+    int sizeFallbackClasses() {
+        return sizeFallbackClasses;
     }
 }

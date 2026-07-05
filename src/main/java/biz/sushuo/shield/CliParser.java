@@ -32,6 +32,7 @@ final class CliParser {
                 case "--no-numbers" -> builder.obfuscateNumbers(false);
                 case "--no-virtualize" -> builder.virtualize(false);
                 case "--no-control-flow" -> builder.controlFlow(false);
+                case "--require-native-vm", "--native-required" -> builder.requireNativeVm(true);
                 case "--keep-debug" -> builder.stripDebug(false);
                 case "--no-resource-rewrite" -> builder.rewriteTextResources(false);
                 default -> throw new UsageException("Unknown option: " + arg);
@@ -59,7 +60,7 @@ final class CliParser {
                 manifest/resource rewrite, and runtime decryptor injection.
 
                 Options:
-                  --preset <sushuo1337|balanced|compat>
+                  --preset <sushuo1337|balanced|compat|minecraft|minecraft-max|maximum|max|ultra>
                   --seed <long>
                   --exclude <glob[,glob...]>       Examples: com.example.api.**, *Mixin*, module-info
                   --prefix <internal/package/>     Default: sushuo1337/sushuoprotect/lib/
@@ -70,6 +71,7 @@ final class CliParser {
                   --no-numbers
                   --no-virtualize
                   --no-control-flow
+                  --require-native-vm              Strongest: VM must run through embedded native runtime
                   --keep-debug
                   --no-resource-rewrite
                 """;
@@ -146,6 +148,44 @@ final class CliParser {
                         .controlFlow(false)
                         .stripDebug(true)
                         .rewriteTextResources(false);
+            }
+            case "minecraft" -> {
+                builder.renameClasses(true)
+                        .renameMembers(true)
+                        .renamePublicMembers(false)
+                        .encryptStrings(true)
+                        .obfuscateNumbers(true)
+                        .virtualize(true)
+                        .controlFlow(true)
+                        .stripDebug(true)
+                        .rewriteTextResources(false)
+                        .minecraftMode(true);
+            }
+            case "minecraft-max", "minecraft-maximum", "mc-max" -> {
+                builder.renameClasses(true)
+                        .renameMembers(true)
+                        .renamePublicMembers(false)
+                        .encryptStrings(true)
+                        .obfuscateNumbers(true)
+                        .virtualize(true)
+                        .controlFlow(true)
+                        .stripDebug(true)
+                        .rewriteTextResources(false)
+                        .requireNativeVm(true)
+                        .minecraftMode(true);
+            }
+            case "maximum", "max", "ultra" -> {
+                builder.renameClasses(true)
+                        .renameMembers(true)
+                        .renamePublicMembers(true)
+                        .encryptStrings(true)
+                        .obfuscateNumbers(true)
+                        .virtualize(true)
+                        .controlFlow(true)
+                        .stripDebug(true)
+                        .rewriteTextResources(true)
+                        .requireNativeVm(true)
+                        .namePrefix("sushuo1337/sushuoprotect/lib/");
             }
             default -> throw new UsageException("Unknown preset: " + preset);
         }

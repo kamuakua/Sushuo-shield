@@ -21,7 +21,9 @@ public final class Main {
             System.out.println(" encrypted strings: " + result.encryptedStrings());
             System.out.println(" obfuscated numbers: " + result.obfuscatedNumbers());
             System.out.println(" control-flow guards: " + result.controlFlowGuards());
+            System.out.println(" size fallback classes: " + result.sizeFallbackClasses());
             System.out.println(" runtime: " + result.runtimeClassName().replace('/', '.'));
+            System.out.println(" native VM required: " + options.requireNativeVm());
         } catch (UsageException ex) {
             System.err.println(ex.getMessage());
             System.err.println();

@@ -3,9 +3,9 @@ package biz.sushuo.shield;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.commons.ClassRemapper;
+import org.objectweb.asm.MethodTooLargeException;
 import org.objectweb.asm.tree.ClassNode;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -26,26 +26,33 @@ final class JarObfuscator {
     ObfuscationResult obfuscate(ObfuscationOptions options) throws IOException {
         InputJar input = readInput(options);
         Map<String, ClassNode> classes = parseClasses(input.classes());
+        options = MinecraftProtector.applyMinecraftExcludes(options, classes, input.resources());
         NamingPlan namingPlan = NamePlanner.plan(classes, options);
         ShieldRemapper remapper = new ShieldRemapper(namingPlan);
         ClassHierarchy hierarchy = ClassHierarchy.from(classes, namingPlan.classNames());
         TransformStats stats = new TransformStats();
 
         Map<String, byte[]> outputClasses = new TreeMap<>();
-        for (ClassNode classNode : classes.values().stream().sorted(Comparator.comparing(node -> node.name)).toList()) {
-            ClassTransformer.transform(classNode, options, namingPlan.runtimeClassName(), remapper, stats);
-
-            ClassNode remapped = new ClassNode();
-            classNode.accept(new ClassRemapper(remapped, remapper));
-
-            ClassWriter writer = new SafeClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS, hierarchy);
-            remapped.accept(writer);
-            outputClasses.put(remapped.name + ".class", writer.toByteArray());
+        Map<String, byte[]> vmResources = new TreeMap<>();
+        for (Map.Entry<String, byte[]> entry : input.classes().entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .toList()) {
+            TransformedClass transformed = transformClass(entry.getValue(), options, namingPlan,
+                    remapper, classes.keySet(), hierarchy);
+            stats.add(transformed.stats());
+            outputClasses.put(transformed.name() + ".class", transformed.bytes());
+            vmResources.putAll(transformed.vmResources());
         }
 
-        outputClasses.putAll(RuntimeClassGenerator.generateAll(namingPlan.runtimeClassName()));
+        outputClasses.putAll(RuntimeClassGenerator.generateAll(
+                namingPlan.runtimeClassName(), namingPlan.nativeResourceName(), options.requireNativeVm()));
+        Map<String, byte[]> nativeResources = RuntimeClassGenerator.nativeResources(namingPlan, options.seed());
+        if (options.requireNativeVm() && nativeResources.isEmpty()) {
+            throw new IOException("Native VM is required, but the packed Windows x64 native resource is missing. "
+                    + "Run native/build-windows.ps1 or mvn package on Windows with a C compiler first.");
+        }
 
-        writeOutput(options, input.resources(), outputClasses, namingPlan);
+        writeOutput(options, input.resources(), outputClasses, nativeResources, vmResources, namingPlan);
 
         return new ObfuscationResult(
                 classes.size(),
@@ -56,8 +63,74 @@ final class JarObfuscator {
                 stats.encryptedStrings(),
                 stats.obfuscatedNumbers(),
                 stats.controlFlowGuards(),
+                stats.sizeFallbackClasses(),
                 namingPlan.runtimeClassName()
         );
+    }
+
+    private static TransformedClass transformClass(
+            byte[] originalBytes,
+            ObfuscationOptions options,
+            NamingPlan namingPlan,
+            ShieldRemapper remapper,
+            Set<String> projectClasses,
+            ClassHierarchy hierarchy
+    ) {
+        List<ObfuscationOptions> attempts = List.of(
+                options,
+                options.withClassTransforms(options.encryptStrings(), options.obfuscateNumbers(), options.virtualize(), false),
+                options.withClassTransforms(options.encryptStrings(), false, options.virtualize(), false),
+                options.withClassTransforms(options.encryptStrings(), false, false, false),
+                options.withClassTransforms(false, false, false, false)
+        );
+        RuntimeException lastFailure = null;
+        for (ObfuscationOptions attempt : attempts) {
+            try {
+                TransformedClass transformed = transformClassAttempt(originalBytes, attempt, namingPlan, remapper, projectClasses, hierarchy);
+                if (attempt != options) {
+                    transformed.stats().addSizeFallbackClass();
+                }
+                return transformed;
+            } catch (RuntimeException ex) {
+                if (!isClassSizeFailure(ex)) {
+                    throw ex;
+                }
+                lastFailure = ex;
+            }
+        }
+        throw lastFailure == null ? new IllegalStateException("Class transform failed") : lastFailure;
+    }
+
+    private static TransformedClass transformClassAttempt(
+            byte[] originalBytes,
+            ObfuscationOptions options,
+            NamingPlan namingPlan,
+            ShieldRemapper remapper,
+            Set<String> projectClasses,
+            ClassHierarchy hierarchy
+    ) {
+        ClassNode classNode = readClass(originalBytes);
+        TransformStats stats = new TransformStats();
+        VmPayloadResources vmPayloadResources = new VmPayloadResources(namingPlan, options.seed());
+        ReflectiveStringRewriter.rewrite(classNode, namingPlan);
+        ClassTransformer.transform(classNode, options, namingPlan.runtimeClassName(), remapper,
+                projectClasses, vmPayloadResources, stats);
+
+        ClassNode remapped = new ClassNode();
+        classNode.accept(new ClassRemapper(remapped, remapper));
+
+        ClassWriter writer = new SafeClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS, hierarchy);
+        remapped.accept(writer);
+        return new TransformedClass(remapped.name, writer.toByteArray(), stats,
+                Map.copyOf(vmPayloadResources.resources()));
+    }
+
+    private static boolean isClassSizeFailure(RuntimeException ex) {
+        return ex instanceof org.objectweb.asm.ClassTooLargeException
+                || ex instanceof MethodTooLargeException
+                || ex instanceof IllegalArgumentException
+                && ex.getMessage() != null
+                && ex.getMessage().contains("UTF8 string too large");
     }
 
     private static InputJar readInput(ObfuscationOptions options) throws IOException {
@@ -85,18 +158,25 @@ final class JarObfuscator {
     private static Map<String, ClassNode> parseClasses(Map<String, byte[]> classEntries) {
         Map<String, ClassNode> classes = new TreeMap<>();
         for (Map.Entry<String, byte[]> entry : classEntries.entrySet()) {
-            ClassReader reader = new ClassReader(entry.getValue());
-            ClassNode classNode = new ClassNode();
-            reader.accept(classNode, ClassReader.EXPAND_FRAMES);
+            ClassNode classNode = readClass(entry.getValue());
             classes.put(classNode.name, classNode);
         }
         return classes;
+    }
+
+    private static ClassNode readClass(byte[] bytes) {
+        ClassReader reader = new ClassReader(bytes);
+        ClassNode classNode = new ClassNode();
+        reader.accept(classNode, ClassReader.EXPAND_FRAMES);
+        return classNode;
     }
 
     private static void writeOutput(
             ObfuscationOptions options,
             List<JarResource> resources,
             Map<String, byte[]> outputClasses,
+            Map<String, byte[]> nativeResources,
+            Map<String, byte[]> vmResources,
             NamingPlan namingPlan
     ) throws IOException {
         if (options.output().getParent() != null) {
@@ -113,6 +193,12 @@ final class JarObfuscator {
 
             for (Map.Entry<String, byte[]> classEntry : outputClasses.entrySet()) {
                 writeEntry(output, written, classEntry.getKey(), classEntry.getValue());
+            }
+            for (Map.Entry<String, byte[]> nativeEntry : nativeResources.entrySet()) {
+                writeEntry(output, written, nativeEntry.getKey(), nativeEntry.getValue());
+            }
+            for (Map.Entry<String, byte[]> vmEntry : vmResources.entrySet()) {
+                writeEntry(output, written, vmEntry.getKey(), vmEntry.getValue());
             }
         }
     }
@@ -143,6 +229,9 @@ final class JarObfuscator {
     private record InputJar(Map<String, byte[]> classes, List<JarResource> resources) {
     }
 
-    private record JarResource(String name, byte[] bytes) {
+    private record TransformedClass(String name, byte[] bytes, TransformStats stats, Map<String, byte[]> vmResources) {
+    }
+
+    record JarResource(String name, byte[] bytes) {
     }
 }

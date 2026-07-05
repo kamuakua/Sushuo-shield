@@ -9,6 +9,7 @@ record ObfuscationResult(
         int encryptedStrings,
         int obfuscatedNumbers,
         int controlFlowGuards,
+        int sizeFallbackClasses,
         String runtimeClassName
 ) {
 }
