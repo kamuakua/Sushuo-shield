@@ -128,7 +128,7 @@ final class NamePlanner implements Opcodes {
         if (field.name.startsWith("$") || field.name.startsWith("this$") || field.name.equals("serialVersionUID")) {
             return false;
         }
-        if ((owner.access & ACC_ENUM) != 0 && (field.access & ACC_ENUM) != 0) {
+        if ((owner.access & ACC_ENUM) != 0 && (field.access & ACC_ENUM) != 0 && !strongMemberRename) {
             return false;
         }
         if (strongMemberRename) {

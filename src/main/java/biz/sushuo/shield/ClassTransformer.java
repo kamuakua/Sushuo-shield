@@ -11,12 +11,13 @@ final class ClassTransformer {
     static void transform(
             ClassNode classNode,
             ObfuscationOptions options,
-            String runtimeClassName,
+            NamingPlan namingPlan,
             ShieldRemapper remapper,
             Set<String> projectClasses,
             VmPayloadResources vmPayloadResources,
             TransformStats stats
     ) {
+        String runtimeClassName = namingPlan.runtimeClassName();
         if (options.scrambleLineNumbers()) {
             stats.addScrambledLineNumbers(LineNumberScrambler.scramble(classNode, options.seed()));
         } else if (options.stripDebug()) {
@@ -54,14 +55,18 @@ final class ClassTransformer {
             stats.addEncryptedStrings(MetadataEncryptor.encrypt(classNode, runtimeClassName, options.seed()));
         }
         if (options.encryptStrings()) {
-            stats.addEncryptedStrings(StringEncryptor.encrypt(classNode, runtimeClassName, remapper, options.seed()));
+            stats.addEncryptedStrings(StringEncryptor.encrypt(classNode, runtimeClassName, remapper,
+                    options.seed(), namingPlan, options.requireNativeVm()));
         } else if (options.sdkMarkers()) {
-            stats.addEncryptedStrings(StringEncryptor.encryptForcedMutate(classNode, runtimeClassName, remapper, options.seed()));
+            stats.addEncryptedStrings(StringEncryptor.encryptForcedMutate(classNode, runtimeClassName, remapper,
+                    options.seed(), namingPlan, options.requireNativeVm()));
         }
         if (options.obfuscateNumbers()) {
-            stats.addObfuscatedNumbers(NumberObfuscator.obfuscate(classNode, runtimeClassName, remapper, options.seed()));
+            stats.addObfuscatedNumbers(NumberObfuscator.obfuscate(classNode, runtimeClassName, remapper,
+                    options.seed(), namingPlan, options.requireNativeVm()));
         } else if (options.sdkMarkers()) {
-            stats.addObfuscatedNumbers(NumberObfuscator.obfuscateForcedMutate(classNode, runtimeClassName, remapper, options.seed()));
+            stats.addObfuscatedNumbers(NumberObfuscator.obfuscateForcedMutate(classNode, runtimeClassName, remapper,
+                    options.seed(), namingPlan, options.requireNativeVm()));
         }
         if (options.controlFlow()) {
             stats.addControlFlowGuards(ControlFlowObfuscator.apply(classNode, runtimeClassName));

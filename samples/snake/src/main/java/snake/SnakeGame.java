@@ -8,12 +8,8 @@ public final class SnakeGame {
     }
 
     public static void main(String[] args) {
-        if (args.length > 0 && "--self-test".equals(args[0])) {
-            System.out.println(SimulationHarness.runSmokeTest());
-            return;
-        }
         if (GraphicsEnvironment.isHeadless()) {
-            System.out.println(SimulationHarness.runSmokeTest());
+            System.out.println("Sushuo Snake requires a graphical desktop.");
             return;
         }
         SwingUtilities.invokeLater(() -> new GameFrame().launch());

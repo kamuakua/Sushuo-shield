@@ -46,7 +46,7 @@ final class ReferenceObfuscator implements Opcodes {
 
     private static boolean isVmDataMethod(MethodNode method) {
         return (method.access & (ACC_PRIVATE | ACC_STATIC | ACC_SYNTHETIC)) == (ACC_PRIVATE | ACC_STATIC | ACC_SYNTHETIC)
-                && method.desc.equals("()[Ljava/lang/Object;");
+                && (method.desc.equals("()[Ljava/lang/Object;") || method.desc.equals("()Ljava/lang/Object;"));
     }
 
     private static boolean canObfuscate(MethodInsnNode call, String runtimeClassName, Set<String> projectClasses) {

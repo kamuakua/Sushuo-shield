@@ -2,8 +2,10 @@ package biz.sushuo.shield;
 
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Handle;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.InvokeDynamicInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 
 import java.util.HashMap;
@@ -18,6 +20,9 @@ final class RuntimeApiObfuscator {
             {"_q", "(III)I"},
             {"_i", "(IIII)I"},
             {"_l", "(JJII)J"},
+            {"_cs", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/String;IIII)Ljava/lang/invoke/CallSite;"},
+            {"_ci", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;IIIII)Ljava/lang/invoke/CallSite;"},
+            {"_cl", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;JJIII)Ljava/lang/invoke/CallSite;"},
             {"_m", "(Ljava/lang/String;)Ljava/lang/String;"},
             {"_ma", "([Ljava/lang/String;)[Ljava/lang/String;"},
             {"_sc", "(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;"},
@@ -25,6 +30,7 @@ final class RuntimeApiObfuscator {
             {"_ri", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Object;[Ljava/lang/Object;I)Ljava/lang/Object;"},
             {"_o", "()Z"},
             {"_g", "(Ljava/lang/String;Ljava/lang/String;)V"},
+            {"_gh", "(II)V"},
             {"_rl", "(Ljava/lang/ClassLoader;Ljava/lang/String;)Ljava/io/InputStream;"},
             {"_rc", "(Ljava/lang/Class;Ljava/lang/String;)Ljava/io/InputStream;"},
             {"_rg", "(Ljava/lang/String;)Ljava/io/InputStream;"}
@@ -103,10 +109,39 @@ final class RuntimeApiObfuscator {
                         call.name = mapped;
                         changed = true;
                     }
+                } else if (instruction instanceof InvokeDynamicInsnNode indy) {
+                    Handle mappedBootstrap = mapHandle(indy.bsm, runtimeClassName, apiNames);
+                    if (mappedBootstrap != indy.bsm) {
+                        indy.bsm = mappedBootstrap;
+                        changed = true;
+                    }
+                    if (indy.bsmArgs != null) {
+                        for (int i = 0; i < indy.bsmArgs.length; i++) {
+                            Object arg = indy.bsmArgs[i];
+                            if (arg instanceof Handle handle) {
+                                Handle mapped = mapHandle(handle, runtimeClassName, apiNames);
+                                if (mapped != handle) {
+                                    indy.bsmArgs[i] = mapped;
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
         return changed;
+    }
+
+    private static Handle mapHandle(Handle handle, String runtimeClassName, Map<MemberSig, String> apiNames) {
+        if (handle == null || !runtimeClassName.equals(handle.getOwner())) {
+            return handle;
+        }
+        String mapped = apiNames.get(new MemberSig(handle.getName(), handle.getDesc()));
+        if (mapped == null) {
+            return handle;
+        }
+        return new Handle(handle.getTag(), handle.getOwner(), mapped, handle.getDesc(), handle.isInterface());
     }
 
     private static String name(String runtimeClassName, long seed, MemberSig sig, int ordinal) {

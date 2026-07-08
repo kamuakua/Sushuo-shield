@@ -1,11 +1,13 @@
 package biz.sushuo.shield;
 
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Handle;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.IntInsnNode;
+import org.objectweb.asm.tree.InvokeDynamicInsnNode;
 import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
@@ -13,6 +15,10 @@ import org.objectweb.asm.tree.MethodNode;
 import java.util.Random;
 
 final class NumberObfuscator implements Opcodes {
+    private static final int FLAG_NATIVE_KEY = 1;
+    private static final int CONST_KIND_INT = 2;
+    private static final int CONST_KIND_LONG = 3;
+
     private NumberObfuscator() {
     }
 
@@ -24,8 +30,24 @@ final class NumberObfuscator implements Opcodes {
         return obfuscate(classNode, runtimeClassName, remapper, seed, true);
     }
 
+    static int obfuscate(ClassNode classNode, String runtimeClassName, ShieldRemapper remapper,
+                         long seed, NamingPlan namingPlan, boolean nativeKeys) {
+        return obfuscate(classNode, runtimeClassName, remapper, seed, false, namingPlan, nativeKeys);
+    }
+
+    static int obfuscateForcedMutate(ClassNode classNode, String runtimeClassName, ShieldRemapper remapper,
+                                     long seed, NamingPlan namingPlan, boolean nativeKeys) {
+        return obfuscate(classNode, runtimeClassName, remapper, seed, true, namingPlan, nativeKeys);
+    }
+
     private static int obfuscate(ClassNode classNode, String runtimeClassName, ShieldRemapper remapper,
                                  long seed, boolean forcedMutateOnly) {
+        return obfuscate(classNode, runtimeClassName, remapper, seed, forcedMutateOnly, null, false);
+    }
+
+    private static int obfuscate(ClassNode classNode, String runtimeClassName, ShieldRemapper remapper,
+                                 long seed, boolean forcedMutateOnly,
+                                 NamingPlan namingPlan, boolean nativeKeys) {
         int count = 0;
         Random random = new Random(seed ^ classNode.name.hashCode() ^ 0xBB67AE8584CAA73BL);
         String mappedOwner = remapper.map(classNode.name);
@@ -39,9 +61,11 @@ final class NumberObfuscator implements Opcodes {
             String mappedMethod = remapper.mapMethodName(classNode.name, method.name, method.desc);
             for (AbstractInsnNode instruction = method.instructions.getFirst(); instruction != null; ) {
                 AbstractInsnNode next = instruction.getNext();
-                InsnList replacement = intReplacement(instruction, runtimeClassName, mappedOwner, mappedMethod, site, random);
+                InsnList replacement = intReplacement(instruction, runtimeClassName, mappedOwner, mappedMethod,
+                        site, random, namingPlan, nativeKeys, seed);
                 if (replacement == null) {
-                    replacement = longReplacement(instruction, runtimeClassName, mappedOwner, mappedMethod, site, random);
+                    replacement = longReplacement(instruction, runtimeClassName, mappedOwner, mappedMethod,
+                            site, random, namingPlan, nativeKeys, seed);
                 }
                 if (replacement != null) {
                     method.instructions.insert(instruction, replacement);
@@ -65,40 +89,85 @@ final class NumberObfuscator implements Opcodes {
         list.add(new MethodInsnNode(INVOKESTATIC, runtimeClassName, "_q", "(III)I", false));
     }
 
-    private static InsnList intReplacement(AbstractInsnNode instruction, String runtimeClassName, String owner, String method, int site, Random random) {
+    private static InsnList intReplacement(AbstractInsnNode instruction, String runtimeClassName, String owner, String method,
+                                           int site, Random random, NamingPlan namingPlan, boolean nativeKeys, long seed) {
         Integer value = intValue(instruction);
         if (value == null) {
             return null;
         }
         int key = random.nextInt();
         int salt = random.nextInt();
-        int encrypted = value ^ dynamicIntKey(key, site, salt, owner, method);
+        String indyName = indyName(random, method, site);
+        int dynamicKey = dynamicIntKey(key, site, salt, owner, indyName);
+        if (nativeKeys) {
+            if (namingPlan == null) {
+                throw new IllegalArgumentException("Native-key number obfuscation requires a naming plan");
+            }
+            dynamicKey ^= VmPayloadResources.constantMask32(namingPlan, seed, CONST_KIND_INT,
+                    owner.replace('/', '.'), indyName, key, site, salt);
+        }
+        int encrypted = value ^ dynamicKey;
         InsnList list = new InsnList();
-        pushDynamicInt(list, encrypted, random, runtimeClassName, owner, method);
-        pushDynamicInt(list, key, random, runtimeClassName, owner, method);
-        pushDynamicInt(list, site, random, runtimeClassName, owner, method);
-        pushDynamicInt(list, salt, random, runtimeClassName, owner, method);
-        list.add(new MethodInsnNode(INVOKESTATIC, runtimeClassName,
-                "_i", "(IIII)I", false));
+        list.add(new InvokeDynamicInsnNode(
+                indyName,
+                "()I",
+                new Handle(H_INVOKESTATIC, runtimeClassName, "_ci",
+                        "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;IIIII)Ljava/lang/invoke/CallSite;",
+                        false),
+                encrypted,
+                key,
+                site,
+                salt,
+                nativeKeys ? FLAG_NATIVE_KEY : 0));
         return list;
     }
 
-    private static InsnList longReplacement(AbstractInsnNode instruction, String runtimeClassName, String owner, String method, int site, Random random) {
+    private static InsnList longReplacement(AbstractInsnNode instruction, String runtimeClassName, String owner, String method,
+                                            int site, Random random, NamingPlan namingPlan, boolean nativeKeys, long seed) {
         Long value = longValue(instruction);
         if (value == null) {
             return null;
         }
         long key = random.nextLong();
         int salt = random.nextInt();
-        long encrypted = value ^ dynamicLongKey(key, site, salt, owner, method);
+        String indyName = indyName(random, method, site);
+        long dynamicKey = dynamicLongKey(key, site, salt, owner, indyName);
+        if (nativeKeys) {
+            if (namingPlan == null) {
+                throw new IllegalArgumentException("Native-key number obfuscation requires a naming plan");
+            }
+            dynamicKey ^= VmPayloadResources.constantMask64(namingPlan, seed, CONST_KIND_LONG,
+                    owner.replace('/', '.'), indyName, key, site, salt);
+        }
+        long encrypted = value ^ dynamicKey;
         InsnList list = new InsnList();
-        list.add(new LdcInsnNode(encrypted));
-        list.add(new LdcInsnNode(key));
-        pushDynamicInt(list, site, random, runtimeClassName, owner, method);
-        pushDynamicInt(list, salt, random, runtimeClassName, owner, method);
-        list.add(new MethodInsnNode(INVOKESTATIC, runtimeClassName,
-                "_l", "(JJII)J", false));
+        list.add(new InvokeDynamicInsnNode(
+                indyName,
+                "()J",
+                new Handle(H_INVOKESTATIC, runtimeClassName, "_cl",
+                        "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;JJIII)Ljava/lang/invoke/CallSite;",
+                        false),
+                encrypted,
+                key,
+                site,
+                salt,
+                nativeKeys ? FLAG_NATIVE_KEY : 0));
         return list;
+    }
+
+    private static String indyName(Random random, String method, int site) {
+        int a = mix(random.nextInt() ^ method.hashCode() ^ site * 0x45D9F3B);
+        int b = mix(random.nextInt() ^ Integer.rotateLeft(a, 11) ^ site * 0x27D4EB2D);
+        return "_" + Integer.toUnsignedString(a, 36) + Integer.toUnsignedString(b, 36);
+    }
+
+    private static int mix(int value) {
+        value ^= value >>> 16;
+        value *= 0x7FEB352D;
+        value ^= value >>> 15;
+        value *= 0x846CA68B;
+        value ^= value >>> 16;
+        return value == 0 ? 0x13579BDF : value;
     }
 
     private static int dynamicImmediateKey(int key, int salt, String owner, String method) {

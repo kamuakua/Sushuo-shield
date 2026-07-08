@@ -37,7 +37,7 @@ final class StringCipher {
         return mixed ^ (mixed >>> 16);
     }
 
-    private static String encodeWithKey(String value, int key) {
+    static String encodeWithKey(String value, int key) {
         char[] chars = value.toCharArray();
         for (int i = 0; i < chars.length; i++) {
             chars[i] = (char) (chars[i] ^ mask(key, i));

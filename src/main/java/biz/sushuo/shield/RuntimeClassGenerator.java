@@ -49,6 +49,8 @@ final class RuntimeClassGenerator {
     private static final String INTEGRITY_RESOURCE_TOKEN = "%%SUSHUO_INTEGRITY_RESOURCE%%";
     private static final String INTEGRITY_HASH_TOKEN = "%%SUSHUO_INTEGRITY_HASH%%";
     private static final String NATIVE_METHOD_TOKEN = "%%SUSHUO_NATIVE_METHOD%%";
+    private static final String NATIVE_KEY_I_METHOD_TOKEN = "%%SUSHUO_NATIVE_KEY_I_METHOD%%";
+    private static final String NATIVE_KEY_L_METHOD_TOKEN = "%%SUSHUO_NATIVE_KEY_L_METHOD%%";
     private static final String LICENSE_PROPERTY_TOKEN = "%%SUSHUO_LICENSE_PROPERTY%%";
     private static final String LICENSE_ENV_TOKEN = "%%SUSHUO_LICENSE_ENV%%";
     private static final String DEBUGGER_PROPERTY_TOKEN = "%%SUSHUO_DEBUGGER_PROPERTY%%";
@@ -96,10 +98,13 @@ final class RuntimeClassGenerator {
         String template = nativeRequired ? NATIVE_ONLY_TEMPLATE : TEMPLATE;
         String bridgeClassName = bridgeClassName(runtimeClassName);
         String bridgeMethodName = bridgeMethodName(runtimeClassName);
+        String bridgeKeyIntMethodName = bridgeKeyIntMethodName(runtimeClassName);
+        String bridgeKeyLongMethodName = bridgeKeyLongMethodName(runtimeClassName);
         String nativeLibraryName = nativeLibraryName(runtimeClassName);
         byte[] runtimeClass = generate(template, runtimeClassName, "/" + nativeResourceName, nativeRequired,
                 antiDebug, antiVm, licenseHash, integrityResourceName, integrityHash, SELF_HASH_TOKEN,
-                runtimeApiNames, bridgeClassName, bridgeMethodName, nativeLibraryName);
+                runtimeApiNames, bridgeClassName, bridgeMethodName, bridgeKeyIntMethodName,
+                bridgeKeyLongMethodName, nativeLibraryName);
         if (integrityHash != 0 && integrityResourceName != null && !integrityResourceName.isEmpty()) {
             int selfHash = selfClassHash(runtimeClass, runtimeClassName.replace('/', '.'));
             runtimeClass = patchSelfHashToken(runtimeClass, formatSelfHash(selfHash));
@@ -107,7 +112,8 @@ final class RuntimeClassGenerator {
         classes.put(runtimeClassName + ".class", runtimeClass);
         classes.put(bridgeClassName + ".class",
                 generate(NATIVE_BRIDGE_TEMPLATE, bridgeClassName, null, false,
-                        false, false, 0, "", 0, SELF_HASH_TOKEN, Map.of(), bridgeClassName, bridgeMethodName, nativeLibraryName));
+                        false, false, 0, "", 0, SELF_HASH_TOKEN, Map.of(), bridgeClassName, bridgeMethodName,
+                        bridgeKeyIntMethodName, bridgeKeyLongMethodName, nativeLibraryName));
         return classes;
     }
 
@@ -315,7 +321,7 @@ final class RuntimeClassGenerator {
                                    Map<RuntimeApiObfuscator.MemberSig, String> runtimeApiNames) throws IOException {
         return generate(template, targetName, nativeResourceName, nativeRequired, antiDebug, antiVm,
                 licenseHash, integrityResourceName, integrityHash, selfHashValue,
-                runtimeApiNames, NATIVE_BRIDGE, "_n", "sushuo1337_vm");
+                runtimeApiNames, NATIVE_BRIDGE, "_n", "_ki", "_kl", "sushuo1337_vm");
     }
 
     private static byte[] generate(String template, String targetName,
@@ -326,6 +332,8 @@ final class RuntimeClassGenerator {
                                    Map<RuntimeApiObfuscator.MemberSig, String> runtimeApiNames,
                                    String bridgeClassName,
                                    String bridgeMethodName,
+                                   String bridgeKeyIntMethodName,
+                                   String bridgeKeyLongMethodName,
                                    String nativeLibraryName) throws IOException {
         try (InputStream input = RuntimeClassGenerator.class.getClassLoader()
                 .getResourceAsStream(template + ".class")) {
@@ -349,11 +357,12 @@ final class RuntimeClassGenerator {
             if (TEMPLATE.equals(template) || NATIVE_ONLY_TEMPLATE.equals(template)) {
                 patchRuntimeConstants(remapped, nativeResourceName, nativeLibraryName, nativeRequired, antiDebug, antiVm,
                         licenseHash, integrityResourceName, integrityHash, selfHashValue);
-                rewriteNativeBridgeCalls(remapped, bridgeClassName, bridgeMethodName);
+                rewriteNativeBridgeCalls(remapped, bridgeClassName, bridgeMethodName,
+                        bridgeKeyIntMethodName, bridgeKeyLongMethodName);
                 RuntimeApiObfuscator.rewriteClassNode(remapped, targetName, runtimeApiNames, true);
                 obfuscateRuntimePrivateMembers(remapped, targetName);
             } else if (NATIVE_BRIDGE_TEMPLATE.equals(template)) {
-                patchNativeBridgeClass(remapped, bridgeMethodName);
+                patchNativeBridgeClass(remapped, bridgeMethodName, bridgeKeyIntMethodName, bridgeKeyLongMethodName);
             }
             ClassWriter writer = new ClassWriter(0);
             remapped.accept(writer);
@@ -361,33 +370,56 @@ final class RuntimeClassGenerator {
         }
     }
 
-    private static void rewriteNativeBridgeCalls(ClassNode classNode, String bridgeClassName, String bridgeMethodName) {
+    private static void rewriteNativeBridgeCalls(ClassNode classNode, String bridgeClassName, String bridgeMethodName,
+                                                String bridgeKeyIntMethodName, String bridgeKeyLongMethodName) {
         for (MethodNode method : classNode.methods) {
             for (AbstractInsnNode instruction = method.instructions.getFirst();
                  instruction != null;
                  instruction = instruction.getNext()) {
                 if (instruction instanceof MethodInsnNode call
-                        && bridgeClassName.equals(call.owner)
-                        && call.name.equals("_n")
-                        && call.desc.equals("([Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;")) {
-                    call.name = bridgeMethodName;
+                        && bridgeClassName.equals(call.owner)) {
+                    if (call.name.equals("_n")
+                            && call.desc.equals("([Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;")) {
+                        call.name = bridgeMethodName;
+                    } else if (call.name.equals("_ki")
+                            && call.desc.equals("(ILjava/lang/Class;Ljava/lang/String;III)I")) {
+                        call.name = bridgeKeyIntMethodName;
+                    } else if (call.name.equals("_kl")
+                            && call.desc.equals("(ILjava/lang/Class;Ljava/lang/String;JII)J")) {
+                        call.name = bridgeKeyLongMethodName;
+                    }
                 }
             }
         }
     }
 
-    private static void patchNativeBridgeClass(ClassNode classNode, String bridgeMethodName) {
+    private static void patchNativeBridgeClass(ClassNode classNode, String bridgeMethodName,
+                                               String bridgeKeyIntMethodName, String bridgeKeyLongMethodName) {
         for (FieldNode field : classNode.fields) {
             if ("a".equals(field.name)
                     && "Ljava/lang/String;".equals(field.desc)
                     && NATIVE_METHOD_TOKEN.equals(field.value)) {
                 field.value = bridgeMethodName;
+            } else if ("b".equals(field.name)
+                    && "Ljava/lang/String;".equals(field.desc)
+                    && NATIVE_KEY_I_METHOD_TOKEN.equals(field.value)) {
+                field.value = bridgeKeyIntMethodName;
+            } else if ("c".equals(field.name)
+                    && "Ljava/lang/String;".equals(field.desc)
+                    && NATIVE_KEY_L_METHOD_TOKEN.equals(field.value)) {
+                field.value = bridgeKeyLongMethodName;
             }
         }
         for (MethodNode method : classNode.methods) {
             if (method.name.equals("_n")
                     && method.desc.equals("([Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;")) {
                 method.name = bridgeMethodName;
+            } else if (method.name.equals("_ki")
+                    && method.desc.equals("(ILjava/lang/Class;Ljava/lang/String;III)I")) {
+                method.name = bridgeKeyIntMethodName;
+            } else if (method.name.equals("_kl")
+                    && method.desc.equals("(ILjava/lang/Class;Ljava/lang/String;JII)J")) {
+                method.name = bridgeKeyLongMethodName;
             }
             for (AbstractInsnNode instruction = method.instructions.getFirst();
                  instruction != null;
@@ -395,6 +427,12 @@ final class RuntimeClassGenerator {
                 if (instruction instanceof LdcInsnNode ldc
                         && NATIVE_METHOD_TOKEN.equals(ldc.cst)) {
                     ldc.cst = bridgeMethodName;
+                } else if (instruction instanceof LdcInsnNode ldc
+                        && NATIVE_KEY_I_METHOD_TOKEN.equals(ldc.cst)) {
+                    ldc.cst = bridgeKeyIntMethodName;
+                } else if (instruction instanceof LdcInsnNode ldc
+                        && NATIVE_KEY_L_METHOD_TOKEN.equals(ldc.cst)) {
+                    ldc.cst = bridgeKeyLongMethodName;
                 }
             }
         }
@@ -453,6 +491,22 @@ final class RuntimeClassGenerator {
     private static String bridgeMethodName(String runtimeClassName) {
         int a = mix(runtimeClassName.hashCode() ^ 0x4E4D4554);
         int b = mix(a ^ Integer.rotateLeft(runtimeClassName.length() * 0x45D9F3B, 5));
+        return "_"
+                + Integer.toUnsignedString(a, 36)
+                + Integer.toUnsignedString(b, 36);
+    }
+
+    private static String bridgeKeyIntMethodName(String runtimeClassName) {
+        int a = mix(runtimeClassName.hashCode() ^ 0x4B455949);
+        int b = mix(a ^ Integer.rotateLeft(runtimeClassName.length() * 0x27D4EB2D, 9));
+        return "_"
+                + Integer.toUnsignedString(a, 36)
+                + Integer.toUnsignedString(b, 36);
+    }
+
+    private static String bridgeKeyLongMethodName(String runtimeClassName) {
+        int a = mix(runtimeClassName.hashCode() ^ 0x4B45594C);
+        int b = mix(a ^ Integer.rotateLeft(runtimeClassName.length() * 0x9E3779B9, 13));
         return "_"
                 + Integer.toUnsignedString(a, 36)
                 + Integer.toUnsignedString(b, 36);

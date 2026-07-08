@@ -8,6 +8,10 @@ public final class InjectedRuntime {
     private static final int MAP_SALT = 0x27D4EB2D;
     private static final int NATIVE_MAGIC = 0x53534E32;
     private static final int NATIVE_VERSION = 2;
+    private static final int FLAG_NATIVE_KEY = 1;
+    private static final int CONST_KIND_STRING = 1;
+    private static final int CONST_KIND_INT = 2;
+    private static final int CONST_KIND_LONG = 3;
     private static final boolean ANTI_DEBUG = Boolean.parseBoolean("%%SUSHUO_ANTI_DEBUG%%");
     private static final boolean ANTI_VM = Boolean.parseBoolean("%%SUSHUO_ANTI_VM%%");
     private static final int LICENSE_HASH = parseOptionInt("%%SUSHUO_LICENSE_HASH%%");
@@ -156,6 +160,84 @@ public final class InjectedRuntime {
     public static long _l(long encrypted, long key, int site, int salt) {
         String[] caller = callerContext();
         return encrypted ^ dynamicLongKey(key, site, salt, caller[0], caller[1]);
+    }
+
+    public static java.lang.invoke.CallSite _cs(java.lang.invoke.MethodHandles.Lookup lookup,
+                                                String name,
+                                                java.lang.invoke.MethodType type,
+                                                String value,
+                                                int key,
+                                                int site,
+                                                int salt,
+                                                int flags) {
+        String owner = lookup.lookupClass().getName();
+        int decryptKey = (flags & FLAG_NATIVE_KEY) != 0
+                ? nativeIntKey(CONST_KIND_STRING, lookup.lookupClass(), name, key, site, salt)
+                : dynamicStringKey(key, site, salt, owner, name);
+        String result = _d(value, decryptKey);
+        return new java.lang.invoke.ConstantCallSite(
+                java.lang.invoke.MethodHandles.constant(type.returnType(), result).asType(type));
+    }
+
+    public static java.lang.invoke.CallSite _ci(java.lang.invoke.MethodHandles.Lookup lookup,
+                                                String name,
+                                                java.lang.invoke.MethodType type,
+                                                int encrypted,
+                                                int key,
+                                                int site,
+                                                int salt,
+                                                int flags) {
+        String owner = lookup.lookupClass().getName();
+        int decryptKey = (flags & FLAG_NATIVE_KEY) != 0
+                ? nativeIntKey(CONST_KIND_INT, lookup.lookupClass(), name, key, site, salt)
+                : dynamicIntKey(key, site, salt, owner, name);
+        int result = encrypted ^ decryptKey;
+        return new java.lang.invoke.ConstantCallSite(
+                java.lang.invoke.MethodHandles.constant(type.returnType(), result).asType(type));
+    }
+
+    public static java.lang.invoke.CallSite _cl(java.lang.invoke.MethodHandles.Lookup lookup,
+                                                String name,
+                                                java.lang.invoke.MethodType type,
+                                                long encrypted,
+                                                long key,
+                                                int site,
+                                                int salt,
+                                                int flags) {
+        String owner = lookup.lookupClass().getName();
+        long decryptKey = (flags & FLAG_NATIVE_KEY) != 0
+                ? nativeLongKey(CONST_KIND_LONG, lookup.lookupClass(), name, key, site, salt)
+                : dynamicLongKey(key, site, salt, owner, name);
+        long result = encrypted ^ decryptKey;
+        return new java.lang.invoke.ConstantCallSite(
+                java.lang.invoke.MethodHandles.constant(type.returnType(), result).asType(type));
+    }
+
+    private static int nativeIntKey(int kind, Class<?> owner, String name, int key, int site, int salt) {
+        constantCallSiteGuard(owner);
+        if (!nativeReady()) {
+            throw new IllegalStateException("x");
+        }
+        return NativeBridge._ki(kind, owner, name, key, site, salt);
+    }
+
+    private static long nativeLongKey(int kind, Class<?> owner, String name, long key, int site, int salt) {
+        constantCallSiteGuard(owner);
+        if (!nativeReady()) {
+            throw new IllegalStateException("x");
+        }
+        return NativeBridge._kl(kind, owner, name, key, site, salt);
+    }
+
+    private static void constantCallSiteGuard(Class<?> owner) {
+        String expected = owner.getName();
+        StackTraceElement[] trace = Thread.currentThread().getStackTrace();
+        for (StackTraceElement element : trace) {
+            if (expected.equals(element.getClassName())) {
+                return;
+            }
+        }
+        throw new IllegalStateException("x");
     }
 
     public static String _m(String value) {
@@ -421,6 +503,21 @@ public final class InjectedRuntime {
                     && owner.equals(caller.getClassName())
                     && method.equals(caller.getMethodName())
                     && !method.equals(current.getMethodName())) {
+                return;
+            }
+        }
+        throw new IllegalStateException("VM program access denied.");
+    }
+
+    public static void _gh(int ownerHash, int methodHash) {
+        StackTraceElement[] trace = Thread.currentThread().getStackTrace();
+        for (int i = 0; i < trace.length - 1; i++) {
+            StackTraceElement current = trace[i];
+            StackTraceElement caller = trace[i + 1];
+            if (current.getClassName().hashCode() == ownerHash
+                    && caller.getClassName().hashCode() == ownerHash
+                    && caller.getMethodName().hashCode() == methodHash
+                    && !caller.getMethodName().equals(current.getMethodName())) {
                 return;
             }
         }

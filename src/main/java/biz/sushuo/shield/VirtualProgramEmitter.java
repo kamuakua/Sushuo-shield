@@ -26,14 +26,14 @@ final class VirtualProgramEmitter implements Opcodes {
                                           boolean nativeOnly, String runtimeClassName,
                                           boolean guardProgramAccess) {
         MethodNode method = new MethodNode(ACC_PRIVATE | ACC_STATIC | ACC_SYNTHETIC,
-                name, "()[Ljava/lang/Object;", null, null);
+                name, "()Ljava/lang/Object;", null, null);
         InsnList body = method.instructions;
 
-        if (guardProgramAccess && !nativeOnly) {
-            body.add(new LdcInsnNode(program.owner().replace('/', '.')));
-            body.add(new LdcInsnNode(program.hostMethod()));
-            body.add(new MethodInsnNode(INVOKESTATIC, runtimeClassName, "_g",
-                    "(Ljava/lang/String;Ljava/lang/String;)V", false));
+        if (guardProgramAccess) {
+            Virtualizer.pushInt(body, program.owner().replace('/', '.').hashCode());
+            Virtualizer.pushInt(body, program.hostMethod().hashCode());
+            body.add(new MethodInsnNode(INVOKESTATIC, runtimeClassName, "_gh",
+                    "(II)V", false));
         }
 
         if (nativeOnly) {

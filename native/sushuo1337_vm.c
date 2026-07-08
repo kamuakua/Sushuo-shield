@@ -165,6 +165,13 @@ static uint32_t rotr32(uint32_t value, uint32_t shift) {
     return shift == 0U ? value : (value >> shift) | (value << (32U - shift));
 }
 
+static uint64_t rotl64(uint64_t value, uint32_t shift) {
+    shift &= 63U;
+    return shift == 0U ? value : (value << shift) | (value >> (64U - shift));
+}
+
+static jint mix32(jint input);
+
 static uint32_t native_secret_word(int lane) {
     int offset = lane * 4;
     return ((uint32_t) sushuo_native_secret[offset] << 24U)
@@ -258,6 +265,78 @@ static jint java_hash_utf(const char *value) {
     return hash;
 }
 
+static uint64_t mix64(uint64_t value) {
+    value ^= value >> 30U;
+    value *= UINT64_C(0xBF58476D1CE4E5B9);
+    value ^= value >> 27U;
+    value *= UINT64_C(0x94D049BB133111EB);
+    value ^= value >> 31U;
+    return value == 0U ? UINT64_C(0x13579BDF2468ACE1) : value;
+}
+
+static jint dynamic_string_key_native(jint key, jint site, jint salt, const char *owner, const char *method) {
+    uint32_t mixed = (uint32_t) key ^ rotl32((uint32_t) site * 0x45D9F3BU, 7U) ^ (uint32_t) salt;
+    mixed ^= (uint32_t) java_hash_utf(owner);
+    mixed = rotl32(mixed + 0x7F4A7C15U, 11U);
+    mixed ^= (uint32_t) java_hash_utf(method) * 0x5BD1E995U;
+    mixed ^= mixed >> 16U;
+    mixed *= 0x85EBCA6BU;
+    mixed ^= mixed >> 13U;
+    mixed *= 0xC2B2AE35U;
+    return (jint) (mixed ^ (mixed >> 16U));
+}
+
+static jint dynamic_int_key_native(jint key, jint site, jint salt, const char *owner, const char *method) {
+    uint32_t mixed = (uint32_t) key ^ rotl32((uint32_t) site * 0x27D4EB2DU, 9U) ^ (uint32_t) salt;
+    mixed ^= (uint32_t) java_hash_utf(owner);
+    mixed = rotl32(mixed + 0x165667B1U, 7U);
+    mixed ^= (uint32_t) java_hash_utf(method) * 0x85EBCA6BU;
+    mixed ^= mixed >> 15U;
+    mixed *= 0xC2B2AE35U;
+    return (jint) (mixed ^ (mixed >> 16U));
+}
+
+static jlong dynamic_long_key_native(jlong key, jint site, jint salt, const char *owner, const char *method) {
+    uint64_t mixed = (uint64_t) key ^ ((uint64_t) (uint32_t) site << 32U) ^ (uint32_t) salt;
+    mixed ^= (uint32_t) java_hash_utf(owner);
+    mixed = rotl64(mixed + UINT64_C(0x9E3779B97F4A7C15), 17U);
+    mixed ^= (uint64_t) (uint32_t) java_hash_utf(method) * UINT64_C(0xBF58476D1CE4E5B9);
+    mixed ^= mixed >> 30U;
+    mixed *= UINT64_C(0xBF58476D1CE4E5B9);
+    mixed ^= mixed >> 27U;
+    mixed *= UINT64_C(0x94D049BB133111EB);
+    return (jlong) (mixed ^ (mixed >> 31U));
+}
+
+static jint constant_mask32_native(jint kind, const char *owner, const char *method,
+                                   jint key, jint site, jint salt) {
+    uint32_t state = 0x434B3332U ^ (uint32_t) kind ^ (uint32_t) key ^ (uint32_t) salt;
+    state ^= rotl32((uint32_t) site * 0x45D9F3BU, 7U);
+    state ^= (uint32_t) java_hash_utf(owner);
+    state = (uint32_t) mix32((jint) (state ^ native_secret_word(0)));
+    state ^= rotl32((uint32_t) java_hash_utf(method), 11U);
+    state = (uint32_t) mix32((jint) (state ^ native_secret_word(1)));
+    state ^= rotl32(native_secret_word(2), (uint32_t) site & 31U);
+    state = (uint32_t) mix32((jint) (state + native_secret_word(3)
+            + (uint32_t) strlen(owner) * 0x27D4EB2DU));
+    return mix32((jint) (state ^ (uint32_t) strlen(method) * 0x9E3779B9U));
+}
+
+static jlong constant_mask64_native(jint kind, const char *owner, const char *method,
+                                    jlong key, jint site, jint salt) {
+    uint64_t state = UINT64_C(0x434B36344A4E494C) ^ (uint64_t) key
+            ^ ((uint64_t) (uint32_t) kind << 48U)
+            ^ (uint32_t) salt ^ ((uint64_t) (uint32_t) site << 32U);
+    state ^= (uint64_t) (uint32_t) java_hash_utf(owner) * UINT64_C(0x9E3779B97F4A7C15);
+    state ^= (uint64_t) (uint32_t) java_hash_utf(method) * UINT64_C(0xBF58476D1CE4E5B9);
+    state ^= ((uint64_t) native_secret_word(0) << 32U) ^ native_secret_word(1);
+    state = mix64(state);
+    state ^= rotl64(((uint64_t) native_secret_word(2) << 32U) ^ native_secret_word(3),
+            (uint32_t) site & 63U);
+    state ^= ((uint64_t) strlen(owner) << 17U) ^ (uint64_t) strlen(method) * UINT64_C(0x94D049BB133111EB);
+    return (jlong) mix64(state);
+}
+
 static uint8_t resource_mask(jint key, jint nonce, jint resource_hash, jint code_length,
                              jint payload_length, jint index) {
     uint32_t state = (uint32_t) key ^ (uint32_t) nonce ^ (uint32_t) resource_hash ^ RESOURCE_SALT;
@@ -294,7 +373,7 @@ static void throw_illegal_state(JNIEnv *env, const char *message) {
 static int sushuo_native_security_check(JNIEnv *env) {
     if (sushuo_native_debugger_present()) {
         if (env != NULL) {
-            throw_illegal_state(env, "Native VM debugger detected");
+            throw_illegal_state(env, "x");
         }
         return 0;
     }
@@ -317,7 +396,7 @@ static jbyteArray load_resource_bytes(JNIEnv *env, jstring resource_name) {
         return NULL;
     }
     if (stream == NULL) {
-        throw_illegal_state(env, "VM payload resource missing");
+        throw_illegal_state(env, "x");
         return NULL;
     }
 
@@ -378,7 +457,7 @@ static jbyte packed_byte_at(JNIEnv *env, vm_code_reader *reader, jint offset) {
                 || RESOURCE_HEADER_BYTES + offset >= reader->resource_bytes_len) {
             jclass cls = (*env)->FindClass(env, "java/lang/ArrayIndexOutOfBoundsException");
             if (cls != NULL) {
-                (*env)->ThrowNew(env, cls, "VM payload out of range");
+                (*env)->ThrowNew(env, cls, "x");
             }
             return 0;
         }
@@ -400,7 +479,7 @@ static jint decode_packed_code(JNIEnv *env, vm_code_reader *reader, jint index) 
     if (index < 0 || index >= reader->length || reader->chunk_bytes <= 0) {
         jclass cls = (*env)->FindClass(env, "java/lang/ArrayIndexOutOfBoundsException");
         if (cls != NULL) {
-            (*env)->ThrowNew(env, cls, "VM pc out of range");
+            (*env)->ThrowNew(env, cls, "x");
         }
         return 0;
     }
@@ -604,7 +683,7 @@ static jint compare_double(jdouble left, jdouble right, jint nan_value) {
 static void throw_unsupported(JNIEnv *env) {
     jclass cls = (*env)->FindClass(env, "java/lang/UnsupportedOperationException");
     if (cls != NULL) {
-        (*env)->ThrowNew(env, cls, "native VM fallback");
+        (*env)->ThrowNew(env, cls, "x");
     }
 }
 
@@ -1004,7 +1083,7 @@ static jclass type_from_constant(JNIEnv *env, jobjectArray constants, jint type_
 
 static jint resource_read_i32(JNIEnv *env, vm_code_reader *reader, jint *cursor) {
     if (*cursor < 0 || *cursor + 4 > reader->resource_payload_len) {
-        throw_illegal_state(env, "VM payload metadata truncated");
+        throw_illegal_state(env, "x");
         return 0;
     }
     uint32_t value = ((uint32_t) resource_payload_byte_at(reader, *cursor) << 24U)
@@ -1026,7 +1105,7 @@ static jlong resource_read_i64(JNIEnv *env, vm_code_reader *reader, jint *cursor
 
 static jint resource_read_u8(JNIEnv *env, vm_code_reader *reader, jint *cursor) {
     if (*cursor < 0 || *cursor >= reader->resource_payload_len) {
-        throw_illegal_state(env, "VM payload metadata truncated");
+        throw_illegal_state(env, "x");
         return 0;
     }
     uint8_t value = resource_payload_byte_at(reader, *cursor);
@@ -1341,7 +1420,7 @@ static jint *decode_resource_map(JNIEnv *env, vm_code_reader *reader, jint *curs
         return NULL;
     }
     if (map_len < 0 || map_len > 4096 || *cursor + map_len * 4 > reader->resource_payload_len) {
-        throw_illegal_state(env, "VM opcode map metadata invalid");
+        throw_illegal_state(env, "x");
         return NULL;
     }
     jint *encoded = (jint *) malloc((size_t) map_len * sizeof(jint));
@@ -1369,7 +1448,7 @@ static jobjectArray decode_resource_constants(JNIEnv *env, vm_code_reader *reade
         return NULL;
     }
     if (count < 0 || count > 65535) {
-        throw_illegal_state(env, "VM constant metadata invalid");
+        throw_illegal_state(env, "x");
         return NULL;
     }
     jclass object_cls = (*env)->FindClass(env, "java/lang/Object");
@@ -1422,7 +1501,7 @@ static jobjectArray decode_resource_constants(JNIEnv *env, vm_code_reader *reade
                     return NULL;
                 }
                 if (length < 0 || *cursor + length > reader->resource_payload_len) {
-                    throw_illegal_state(env, "VM string metadata invalid");
+                    throw_illegal_state(env, "x");
                     return NULL;
                 }
                 jbyte *bytes = length == 0 ? NULL : (jbyte *) malloc((size_t) length);
@@ -1438,7 +1517,7 @@ static jobjectArray decode_resource_constants(JNIEnv *env, vm_code_reader *reade
                 break;
             }
             default:
-                throw_illegal_state(env, "VM constant tag invalid");
+                throw_illegal_state(env, "x");
                 return NULL;
         }
         if ((*env)->ExceptionCheck(env)) {
@@ -1452,6 +1531,78 @@ static jobjectArray decode_resource_constants(JNIEnv *env, vm_code_reader *reade
         }
     }
     return constants;
+}
+
+static jstring class_name_string(JNIEnv *env, jclass owner_class) {
+    jclass class_cls = (*env)->FindClass(env, "java/lang/Class");
+    if (class_cls == NULL || owner_class == NULL) {
+        return NULL;
+    }
+    jmethodID get_name = (*env)->GetMethodID(env, class_cls, "getName", "()Ljava/lang/String;");
+    if (get_name == NULL) {
+        return NULL;
+    }
+    return (jstring) (*env)->CallObjectMethod(env, owner_class, get_name);
+}
+
+static jint SUSHUO_CALL sushuo_native_key_i(
+        JNIEnv *env, jclass ignored, jint kind, jclass owner_class,
+        jstring indy_name, jint key, jint site, jint salt) {
+    (void) ignored;
+    if (!sushuo_native_security_check(env)) {
+        return 0;
+    }
+    jstring owner_string = class_name_string(env, owner_class);
+    if (owner_string == NULL || indy_name == NULL || (*env)->ExceptionCheck(env)) {
+        return 0;
+    }
+    const char *owner = (*env)->GetStringUTFChars(env, owner_string, NULL);
+    const char *name = (*env)->GetStringUTFChars(env, indy_name, NULL);
+    if (owner == NULL || name == NULL) {
+        if (owner != NULL) {
+            (*env)->ReleaseStringUTFChars(env, owner_string, owner);
+        }
+        if (name != NULL) {
+            (*env)->ReleaseStringUTFChars(env, indy_name, name);
+        }
+        return 0;
+    }
+    jint dynamic = kind == 1
+            ? dynamic_string_key_native(key, site, salt, owner, name)
+            : dynamic_int_key_native(key, site, salt, owner, name);
+    jint result = dynamic ^ constant_mask32_native(kind, owner, name, key, site, salt);
+    (*env)->ReleaseStringUTFChars(env, owner_string, owner);
+    (*env)->ReleaseStringUTFChars(env, indy_name, name);
+    return result;
+}
+
+static jlong SUSHUO_CALL sushuo_native_key_l(
+        JNIEnv *env, jclass ignored, jint kind, jclass owner_class,
+        jstring indy_name, jlong key, jint site, jint salt) {
+    (void) ignored;
+    if (!sushuo_native_security_check(env)) {
+        return 0;
+    }
+    jstring owner_string = class_name_string(env, owner_class);
+    if (owner_string == NULL || indy_name == NULL || (*env)->ExceptionCheck(env)) {
+        return 0;
+    }
+    const char *owner = (*env)->GetStringUTFChars(env, owner_string, NULL);
+    const char *name = (*env)->GetStringUTFChars(env, indy_name, NULL);
+    if (owner == NULL || name == NULL) {
+        if (owner != NULL) {
+            (*env)->ReleaseStringUTFChars(env, owner_string, owner);
+        }
+        if (name != NULL) {
+            (*env)->ReleaseStringUTFChars(env, indy_name, name);
+        }
+        return 0;
+    }
+    jlong result = dynamic_long_key_native(key, site, salt, owner, name)
+            ^ constant_mask64_native(kind, owner, name, key, site, salt);
+    (*env)->ReleaseStringUTFChars(env, owner_string, owner);
+    (*env)->ReleaseStringUTFChars(env, indy_name, name);
+    return result;
 }
 
 static jobject SUSHUO_CALL sushuo_native_vm(
@@ -1523,7 +1674,7 @@ static jobject SUSHUO_CALL sushuo_native_vm(
                 return NULL;
             }
             if (token == 0 || owner_hash != expected_owner_hash || method_hash != expected_method_hash) {
-                throw_illegal_state(env, "VM state rejected");
+                throw_illegal_state(env, "x");
                 return NULL;
             }
             key = key ^ token ^ SEAL_SALT;
@@ -1550,7 +1701,7 @@ static jobject SUSHUO_CALL sushuo_native_vm(
             }
             if (resource_len < RESOURCE_HEADER_BYTES) {
                 (*env)->ReleaseByteArrayElements(env, resource_array, resource_bytes, JNI_ABORT);
-                throw_illegal_state(env, "VM payload header truncated");
+                throw_illegal_state(env, "x");
                 return NULL;
             }
             jint magic = read_be32(resource_bytes, 0);
@@ -1570,7 +1721,7 @@ static jobject SUSHUO_CALL sushuo_native_vm(
                     || payload_len < code_bytes_len
                     || payload_len < 0 || payload_len > resource_len - RESOURCE_HEADER_BYTES) {
                 (*env)->ReleaseByteArrayElements(env, resource_array, resource_bytes, JNI_ABORT);
-                throw_illegal_state(env, "VM payload integrity check failed");
+                throw_illegal_state(env, "x");
                 return NULL;
             }
             reader.resource_array = resource_array;
@@ -2010,7 +2161,7 @@ static jobject SUSHUO_CALL sushuo_native_vm(
                         if (!(*env)->IsInstanceOf(env, stack[sp - 1], type)) {
                             jclass cast_cls = (*env)->FindClass(env, "java/lang/ClassCastException");
                             if (cast_cls != NULL) {
-                                (*env)->ThrowNew(env, cast_cls, "native VM checkcast");
+                                (*env)->ThrowNew(env, cast_cls, "x");
                             }
                         }
                     }
@@ -2201,8 +2352,16 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     }
     const char *native_method_name = NULL;
     const char *native_method_chars = NULL;
+    const char *native_key_i_name = NULL;
+    const char *native_key_i_chars = NULL;
+    const char *native_key_l_name = NULL;
+    const char *native_key_l_chars = NULL;
     jstring native_method_string = NULL;
+    jstring native_key_i_string = NULL;
+    jstring native_key_l_string = NULL;
     jfieldID native_method_field = (*env)->GetStaticFieldID(env, bridge, "a", "Ljava/lang/String;");
+    jfieldID native_key_i_field = (*env)->GetStaticFieldID(env, bridge, "b", "Ljava/lang/String;");
+    jfieldID native_key_l_field = (*env)->GetStaticFieldID(env, bridge, "c", "Ljava/lang/String;");
     if (native_method_field != NULL) {
         native_method_string = (jstring) (*env)->GetStaticObjectField(env, bridge, native_method_field);
         if (native_method_string != NULL) {
@@ -2211,24 +2370,56 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
                 native_method_name = native_method_chars;
             }
         }
+        if (native_key_i_field != NULL) {
+            native_key_i_string = (jstring) (*env)->GetStaticObjectField(env, bridge, native_key_i_field);
+            if (native_key_i_string != NULL) {
+                native_key_i_chars = (*env)->GetStringUTFChars(env, native_key_i_string, NULL);
+                if (native_key_i_chars != NULL && native_key_i_chars[0] != '\0') {
+                    native_key_i_name = native_key_i_chars;
+                }
+            }
+        }
+        if (native_key_l_field != NULL) {
+            native_key_l_string = (jstring) (*env)->GetStaticObjectField(env, bridge, native_key_l_field);
+            if (native_key_l_string != NULL) {
+                native_key_l_chars = (*env)->GetStringUTFChars(env, native_key_l_string, NULL);
+                if (native_key_l_chars != NULL && native_key_l_chars[0] != '\0') {
+                    native_key_l_name = native_key_l_chars;
+                }
+            }
+        }
     } else {
         if ((*env)->ExceptionCheck(env)) {
             (*env)->ExceptionClear(env);
         }
         return JNI_ERR;
     }
-    if (native_method_name == NULL) {
+    if (native_method_name == NULL || native_key_i_name == NULL || native_key_l_name == NULL) {
         if (native_method_string != NULL && native_method_chars != NULL) {
             (*env)->ReleaseStringUTFChars(env, native_method_string, native_method_chars);
+        }
+        if (native_key_i_string != NULL && native_key_i_chars != NULL) {
+            (*env)->ReleaseStringUTFChars(env, native_key_i_string, native_key_i_chars);
+        }
+        if (native_key_l_string != NULL && native_key_l_chars != NULL) {
+            (*env)->ReleaseStringUTFChars(env, native_key_l_string, native_key_l_chars);
         }
         return JNI_ERR;
     }
     JNINativeMethod methods[] = {
-            {(char *) native_method_name, "([Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;", (void *) sushuo_native_vm}
+            {(char *) native_method_name, "([Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;", (void *) sushuo_native_vm},
+            {(char *) native_key_i_name, "(ILjava/lang/Class;Ljava/lang/String;III)I", (void *) sushuo_native_key_i},
+            {(char *) native_key_l_name, "(ILjava/lang/Class;Ljava/lang/String;JII)J", (void *) sushuo_native_key_l}
     };
-    jint registered = (*env)->RegisterNatives(env, bridge, methods, 1);
+    jint registered = (*env)->RegisterNatives(env, bridge, methods, 3);
     if (native_method_string != NULL && native_method_chars != NULL) {
         (*env)->ReleaseStringUTFChars(env, native_method_string, native_method_chars);
+    }
+    if (native_key_i_string != NULL && native_key_i_chars != NULL) {
+        (*env)->ReleaseStringUTFChars(env, native_key_i_string, native_key_i_chars);
+    }
+    if (native_key_l_string != NULL && native_key_l_chars != NULL) {
+        (*env)->ReleaseStringUTFChars(env, native_key_l_string, native_key_l_chars);
     }
     if (registered != JNI_OK) {
         return JNI_ERR;

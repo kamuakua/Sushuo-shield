@@ -245,7 +245,7 @@ final class JarObfuscator {
         TransformStats stats = new TransformStats();
         VmPayloadResources vmPayloadResources = new VmPayloadResources(namingPlan, options.seed());
         ReflectiveStringRewriter.rewrite(classNode, namingPlan);
-        ClassTransformer.transform(classNode, options, namingPlan.runtimeClassName(), remapper,
+        ClassTransformer.transform(classNode, options, namingPlan, remapper,
                 projectClasses, vmPayloadResources, stats);
 
         ClassNode remapped = new ClassNode();

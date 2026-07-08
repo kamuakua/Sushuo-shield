@@ -1,6 +1,7 @@
 package biz.sushuo.shield;
 
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Handle;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
@@ -17,6 +18,9 @@ import org.objectweb.asm.tree.VarInsnNode;
 import java.util.Random;
 
 final class StringEncryptor implements Opcodes {
+    private static final int FLAG_NATIVE_KEY = 1;
+    private static final int CONST_KIND_STRING = 1;
+
     private StringEncryptor() {
     }
 
@@ -28,8 +32,24 @@ final class StringEncryptor implements Opcodes {
         return encrypt(classNode, runtimeClassName, remapper, seed, true);
     }
 
+    static int encrypt(ClassNode classNode, String runtimeClassName, ShieldRemapper remapper,
+                       long seed, NamingPlan namingPlan, boolean nativeKeys) {
+        return encrypt(classNode, runtimeClassName, remapper, seed, false, namingPlan, nativeKeys);
+    }
+
+    static int encryptForcedMutate(ClassNode classNode, String runtimeClassName, ShieldRemapper remapper,
+                                   long seed, NamingPlan namingPlan, boolean nativeKeys) {
+        return encrypt(classNode, runtimeClassName, remapper, seed, true, namingPlan, nativeKeys);
+    }
+
     private static int encrypt(ClassNode classNode, String runtimeClassName, ShieldRemapper remapper,
                                long seed, boolean forcedMutateOnly) {
+        return encrypt(classNode, runtimeClassName, remapper, seed, forcedMutateOnly, null, false);
+    }
+
+    private static int encrypt(ClassNode classNode, String runtimeClassName, ShieldRemapper remapper,
+                               long seed, boolean forcedMutateOnly,
+                               NamingPlan namingPlan, boolean nativeKeys) {
         int count = 0;
         Random random = new Random(seed ^ classNode.name.hashCode() ^ 0x6A09E667F3BCC909L);
         String mappedOwner = remapper.map(classNode.name);
@@ -47,14 +67,11 @@ final class StringEncryptor implements Opcodes {
                     int key = random.nextInt();
                     int salt = random.nextInt();
                     int siteId = site++;
-                    InsnList replacement = new InsnList();
-                    replacement.add(new LdcInsnNode(StringCipher.encodeDynamic(value, key, siteId, salt, mappedOwner, mappedMethod)));
-                    NumberObfuscator.pushDynamicInt(replacement, key, random, runtimeClassName, mappedOwner, mappedMethod);
-                    NumberObfuscator.pushDynamicInt(replacement, siteId, random, runtimeClassName, mappedOwner, mappedMethod);
-                    NumberObfuscator.pushDynamicInt(replacement, salt, random, runtimeClassName, mappedOwner, mappedMethod);
-                    replacement.add(new MethodInsnNode(INVOKESTATIC, runtimeClassName, "_d",
-                            "(Ljava/lang/String;III)Ljava/lang/String;", false));
-                    method.instructions.insert(instruction, replacement);
+                    String indyName = indyName(random, mappedMethod, siteId);
+                    String encoded = encode(value, key, siteId, salt, mappedOwner, indyName,
+                            namingPlan, nativeKeys, seed);
+                    method.instructions.insert(instruction, stringIndy(runtimeClassName, indyName,
+                            encoded, key, siteId, salt, nativeKeys));
                     method.instructions.remove(instruction);
                     count++;
                 } else if (instruction instanceof InvokeDynamicInsnNode indy && isStringConcatWithConstants(indy)) {
@@ -63,8 +80,9 @@ final class StringEncryptor implements Opcodes {
                         int key = random.nextInt();
                         int salt = random.nextInt();
                         int siteId = site++;
+                        String indyName = indyName(random, mappedMethod, siteId);
                         InsnList replacement = concatReplacement(method, indy, recipe, key, siteId, salt,
-                                runtimeClassName, mappedOwner, mappedMethod, random);
+                                runtimeClassName, mappedOwner, indyName, namingPlan, nativeKeys, seed);
                         method.instructions.insert(instruction, replacement);
                         method.instructions.remove(instruction);
                         count++;
@@ -74,6 +92,51 @@ final class StringEncryptor implements Opcodes {
             }
         }
         return count;
+    }
+
+    private static InvokeDynamicInsnNode stringIndy(String runtimeClassName, String indyName,
+                                                   String encoded, int key, int siteId, int salt,
+                                                   boolean nativeKeys) {
+        return new InvokeDynamicInsnNode(
+                indyName,
+                "()Ljava/lang/String;",
+                new Handle(H_INVOKESTATIC, runtimeClassName, "_cs",
+                        "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/String;IIII)Ljava/lang/invoke/CallSite;",
+                        false),
+                encoded,
+                key,
+                siteId,
+                salt,
+                nativeKeys ? FLAG_NATIVE_KEY : 0);
+    }
+
+    private static String encode(String value, int key, int siteId, int salt, String mappedOwner,
+                                 String indyName, NamingPlan namingPlan, boolean nativeKeys, long seed) {
+        String dottedOwner = mappedOwner.replace('/', '.');
+        int dynamicKey = StringCipher.dynamicKey(key, siteId, salt, dottedOwner, indyName);
+        if (nativeKeys) {
+            if (namingPlan == null) {
+                throw new IllegalArgumentException("Native-key string encryption requires a naming plan");
+            }
+            dynamicKey ^= VmPayloadResources.constantMask32(namingPlan, seed, CONST_KIND_STRING,
+                    dottedOwner, indyName, key, siteId, salt);
+        }
+        return StringCipher.encodeWithKey(value, dynamicKey);
+    }
+
+    private static String indyName(Random random, String method, int siteId) {
+        int a = mix(random.nextInt() ^ method.hashCode() ^ siteId * 0x45D9F3B);
+        int b = mix(random.nextInt() ^ Integer.rotateLeft(a, 11) ^ siteId * 0x27D4EB2D);
+        return "_" + Integer.toUnsignedString(a, 36) + Integer.toUnsignedString(b, 36);
+    }
+
+    private static int mix(int value) {
+        value ^= value >>> 16;
+        value *= 0x7FEB352D;
+        value ^= value >>> 15;
+        value *= 0x846CA68B;
+        value ^= value >>> 16;
+        return value == 0 ? 0x13579BDF : value;
     }
 
     private static boolean isStringConcatWithConstants(InvokeDynamicInsnNode indy) {
@@ -110,8 +173,10 @@ final class StringEncryptor implements Opcodes {
             int salt,
             String runtimeClassName,
             String mappedOwner,
-            String mappedMethod,
-            Random random
+            String indyName,
+            NamingPlan namingPlan,
+            boolean nativeKeys,
+            long seed
     ) {
         Type[] argumentTypes = Type.getArgumentTypes(indy.desc);
         int[] locals = new int[argumentTypes.length];
@@ -126,12 +191,9 @@ final class StringEncryptor implements Opcodes {
         }
         method.maxLocals = Math.max(method.maxLocals, nextLocal);
 
-        replacement.add(new LdcInsnNode(StringCipher.encodeDynamic(recipe, key, siteId, salt, mappedOwner, mappedMethod)));
-        NumberObfuscator.pushDynamicInt(replacement, key, random, runtimeClassName, mappedOwner, mappedMethod);
-        NumberObfuscator.pushDynamicInt(replacement, siteId, random, runtimeClassName, mappedOwner, mappedMethod);
-        NumberObfuscator.pushDynamicInt(replacement, salt, random, runtimeClassName, mappedOwner, mappedMethod);
-        replacement.add(new MethodInsnNode(INVOKESTATIC, runtimeClassName, "_d",
-                "(Ljava/lang/String;III)Ljava/lang/String;", false));
+        replacement.add(stringIndy(runtimeClassName, indyName,
+                encode(recipe, key, siteId, salt, mappedOwner, indyName, namingPlan, nativeKeys, seed),
+                key, siteId, salt, nativeKeys));
 
         pushInt(replacement, argumentTypes.length);
         replacement.add(new TypeInsnNode(ANEWARRAY, "java/lang/Object"));

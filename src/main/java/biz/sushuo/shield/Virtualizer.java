@@ -124,7 +124,7 @@ final class Virtualizer implements Opcodes {
             String candidate = "_"
                     + Integer.toUnsignedString(a, 36)
                     + Integer.toUnsignedString(b, 36);
-            if (usedMethodKeys.add(candidate + "()[Ljava/lang/Object;")) {
+            if (usedMethodKeys.add(candidate + "()Ljava/lang/Object;")) {
                 return candidate;
             }
             attempt++;
@@ -289,7 +289,8 @@ final class Virtualizer implements Opcodes {
         Type[] arguments = methodType.getArgumentTypes();
         InsnList body = new InsnList();
 
-        body.add(new MethodInsnNode(INVOKESTATIC, owner, dataMethodName, "()[Ljava/lang/Object;", false));
+        body.add(new MethodInsnNode(INVOKESTATIC, owner, dataMethodName, "()Ljava/lang/Object;", false));
+        body.add(new TypeInsnNode(CHECKCAST, "[Ljava/lang/Object;"));
         pushInt(body, method.maxLocals);
         body.add(new TypeInsnNode(ANEWARRAY, "java/lang/Object"));
 

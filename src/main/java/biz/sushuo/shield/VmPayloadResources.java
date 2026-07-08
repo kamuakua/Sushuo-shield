@@ -91,6 +91,44 @@ final class VmPayloadResources {
         return secret;
     }
 
+    static int constantMask32(NamingPlan plan, long seed, int kind, String dottedOwner,
+                              String indyName, int key, int site, int salt) {
+        byte[] secret = nativeSecret(plan, seed);
+        int state = 0x434B3332 ^ kind ^ key ^ salt;
+        state ^= Integer.rotateLeft(site * 0x45D9F3B, 7);
+        state ^= dottedOwner.hashCode();
+        state = mix(state ^ secretWord(secret, 0));
+        state ^= Integer.rotateLeft(indyName.hashCode(), 11);
+        state = mix(state ^ secretWord(secret, 1));
+        state ^= Integer.rotateLeft(secretWord(secret, 2), site & 31);
+        state = mix(state + secretWord(secret, 3) + dottedOwner.length() * 0x27D4EB2D);
+        return mix(state ^ indyName.length() * 0x9E3779B9);
+    }
+
+    static long constantMask64(NamingPlan plan, long seed, int kind, String dottedOwner,
+                               String indyName, long key, int site, int salt) {
+        byte[] secret = nativeSecret(plan, seed);
+        long state = 0x434B36344A4E494CL ^ key ^ ((long) kind << 48)
+                ^ ((long) salt & 0xFFFFFFFFL) ^ ((long) site << 32);
+        state ^= ((long) dottedOwner.hashCode()) * 0x9E3779B97F4A7C15L;
+        state ^= ((long) indyName.hashCode()) * 0xBF58476D1CE4E5B9L;
+        state ^= ((long) secretWord(secret, 0) << 32) ^ (secretWord(secret, 1) & 0xFFFFFFFFL);
+        state = mix64(state);
+        state ^= Long.rotateLeft(((long) secretWord(secret, 2) << 32)
+                ^ (secretWord(secret, 3) & 0xFFFFFFFFL), site & 63);
+        state ^= ((long) dottedOwner.length() << 17) ^ indyName.length() * 0x94D049BB133111EBL;
+        return mix64(state);
+    }
+
+    private static long mix64(long value) {
+        value ^= value >>> 30;
+        value *= 0xBF58476D1CE4E5B9L;
+        value ^= value >>> 27;
+        value *= 0x94D049BB133111EBL;
+        value ^= value >>> 31;
+        return value == 0 ? 0x13579BDF2468ACE1L : value;
+    }
+
     private static int sealMask(int token, int site, int index) {
         int value = token ^ Integer.rotateLeft(site * 0x27D4EB2D, 9);
         value ^= index * 0x9E3779B9;
