@@ -9,7 +9,12 @@ record ObfuscationResult(
         int encryptedStrings,
         int obfuscatedNumbers,
         int controlFlowGuards,
+        int referenceObfuscatedCalls,
+        int scrambledLineNumbers,
+        int antiDeobfuscationArtifacts,
+        int parameterObfuscatedMethods,
         int sizeFallbackClasses,
+        int encryptedResources,
         String runtimeClassName
 ) {
 }

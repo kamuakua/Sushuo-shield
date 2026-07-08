@@ -6,6 +6,10 @@ final class TransformStats {
     private int controlFlowGuards;
     private int virtualizedMethods;
     private int virtualizedInstructions;
+    private int referenceObfuscatedCalls;
+    private int scrambledLineNumbers;
+    private int antiDeobfuscationArtifacts;
+    private int parameterObfuscatedMethods;
     private int sizeFallbackClasses;
 
     void addEncryptedStrings(int count) {
@@ -25,6 +29,22 @@ final class TransformStats {
         virtualizedInstructions += instructionCount;
     }
 
+    void addReferenceObfuscatedCalls(int count) {
+        referenceObfuscatedCalls += count;
+    }
+
+    void addScrambledLineNumbers(int count) {
+        scrambledLineNumbers += count;
+    }
+
+    void addAntiDeobfuscationArtifacts(int count) {
+        antiDeobfuscationArtifacts += count;
+    }
+
+    void addParameterObfuscatedMethods(int count) {
+        parameterObfuscatedMethods += count;
+    }
+
     void addSizeFallbackClass() {
         sizeFallbackClasses++;
     }
@@ -35,6 +55,10 @@ final class TransformStats {
         controlFlowGuards += other.controlFlowGuards;
         virtualizedMethods += other.virtualizedMethods;
         virtualizedInstructions += other.virtualizedInstructions;
+        referenceObfuscatedCalls += other.referenceObfuscatedCalls;
+        scrambledLineNumbers += other.scrambledLineNumbers;
+        antiDeobfuscationArtifacts += other.antiDeobfuscationArtifacts;
+        parameterObfuscatedMethods += other.parameterObfuscatedMethods;
         sizeFallbackClasses += other.sizeFallbackClasses;
     }
 
@@ -56,6 +80,22 @@ final class TransformStats {
 
     int virtualizedInstructions() {
         return virtualizedInstructions;
+    }
+
+    int referenceObfuscatedCalls() {
+        return referenceObfuscatedCalls;
+    }
+
+    int scrambledLineNumbers() {
+        return scrambledLineNumbers;
+    }
+
+    int antiDeobfuscationArtifacts() {
+        return antiDeobfuscationArtifacts;
+    }
+
+    int parameterObfuscatedMethods() {
+        return parameterObfuscatedMethods;
     }
 
     int sizeFallbackClasses() {

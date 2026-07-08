@@ -19,11 +19,17 @@ final class VirtualProgramEmitter implements Opcodes {
 
     static MethodNode createProgramMethod(String owner, String name, VirtualProgram program,
                                           boolean nativeOnly, String runtimeClassName) {
+        return createProgramMethod(owner, name, program, nativeOnly, runtimeClassName, nativeOnly);
+    }
+
+    static MethodNode createProgramMethod(String owner, String name, VirtualProgram program,
+                                          boolean nativeOnly, String runtimeClassName,
+                                          boolean guardProgramAccess) {
         MethodNode method = new MethodNode(ACC_PRIVATE | ACC_STATIC | ACC_SYNTHETIC,
                 name, "()[Ljava/lang/Object;", null, null);
         InsnList body = method.instructions;
 
-        if (nativeOnly) {
+        if (guardProgramAccess && !nativeOnly) {
             body.add(new LdcInsnNode(program.owner().replace('/', '.')));
             body.add(new LdcInsnNode(program.hostMethod()));
             body.add(new MethodInsnNode(INVOKESTATIC, runtimeClassName, "_g",
@@ -31,7 +37,7 @@ final class VirtualProgramEmitter implements Opcodes {
         }
 
         if (nativeOnly) {
-            Virtualizer.pushInt(body, 10);
+            Virtualizer.pushInt(body, 12);
             body.add(new TypeInsnNode(ANEWARRAY, "java/lang/Object"));
 
             putInt(body, 0, VmPayloadResources.RESOURCE_MARKER);
@@ -44,6 +50,8 @@ final class VirtualProgramEmitter implements Opcodes {
             putString(body, 7, VmPayloadResources.sealResourceName(program));
             putInt(body, 8, program.id());
             putInt(body, 9, program.constants().size());
+            putInt(body, 10, program.owner().replace('/', '.').hashCode());
+            putInt(body, 11, program.hostMethod().hashCode());
         } else {
             Virtualizer.pushInt(body, 9);
             body.add(new TypeInsnNode(ANEWARRAY, "java/lang/Object"));

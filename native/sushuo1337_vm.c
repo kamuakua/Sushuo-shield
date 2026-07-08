@@ -4,6 +4,7 @@
 #include <string.h>
 
 #ifdef _WIN32
+#include <windows.h>
 #define SUSHUO_EXPORT __declspec(dllexport)
 #define SUSHUO_CALL __stdcall
 #else
@@ -18,15 +19,45 @@ static volatile unsigned char sushuo_native_secret[16] = {
         0x6D, 0x55, 0x42, 0x7E
 };
 
+static volatile char sushuo_bridge_name[] = "sushuo1337/sushuoprotect/lib/NativeBridge";
+
+static int sushuo_env_truthy(const char *name) {
+    const char *value = getenv(name);
+    if (value == NULL || value[0] == '\0') {
+        return 0;
+    }
+    return strcmp(value, "0") != 0
+            && strcmp(value, "false") != 0
+            && strcmp(value, "FALSE") != 0
+            && strcmp(value, "off") != 0
+            && strcmp(value, "OFF") != 0;
+}
+
+static int sushuo_native_debugger_present(void) {
+    if (sushuo_env_truthy("SUSHUO_NATIVE_DEBUGGER_PRESENT")) {
+        return 1;
+    }
+#ifdef _WIN32
+    if (IsDebuggerPresent()) {
+        return 1;
+    }
+    BOOL remote_debugger = FALSE;
+    if (CheckRemoteDebuggerPresent(GetCurrentProcess(), &remote_debugger) && remote_debugger) {
+        return 1;
+    }
+#endif
+    return 0;
+}
+
 enum {
     ENCODED_MARKER = 0x53535632,
     PACKED_MARKER = 0x53535033,
     RESOURCE_MARKER = 0x53535234,
     RESOURCE_MAGIC = 0x6D4F9B17,
-    RESOURCE_VERSION = 2,
+    RESOURCE_VERSION = 3,
     RESOURCE_SALT = 0x6A09E667,
     SEAL_SALT = 0x4B455931,
-    RESOURCE_HEADER_BYTES = 24,
+    RESOURCE_HEADER_BYTES = 28,
     RESOURCE_CONSTANT_NULL = 0,
     RESOURCE_CONSTANT_INT = 1,
     RESOURCE_CONSTANT_LONG = 2,
@@ -260,13 +291,18 @@ static void throw_illegal_state(JNIEnv *env, const char *message) {
     }
 }
 
+static int sushuo_native_security_check(JNIEnv *env) {
+    if (sushuo_native_debugger_present()) {
+        if (env != NULL) {
+            throw_illegal_state(env, "Native VM debugger detected");
+        }
+        return 0;
+    }
+    return 1;
+}
+
 static jbyteArray load_resource_bytes(JNIEnv *env, jstring resource_name) {
-    char bridge_name[] = {
-            's','u','s','h','u','o','1','3','3','7','/',
-            's','u','s','h','u','o','p','r','o','t','e','c','t','/',
-            'l','i','b','/','N','a','t','i','v','e','B','r','i','d','g','e','\0'
-    };
-    jclass bridge = (*env)->FindClass(env, bridge_name);
+    jclass bridge = (*env)->FindClass(env, (const char *) sushuo_bridge_name);
     jclass class_cls = (*env)->FindClass(env, "java/lang/Class");
     if (bridge == NULL || class_cls == NULL) {
         return NULL;
@@ -388,40 +424,119 @@ static jint read_vm_code(JNIEnv *env, vm_code_reader *reader, jint index) {
     return reader->plain[index];
 }
 
+static int ensure_value_type(JNIEnv *env, jobject value, const char *class_name) {
+    if ((*env)->ExceptionCheck(env)) {
+        return 0;
+    }
+    if (value == NULL) {
+        throw_illegal_state(env, "x");
+        return 0;
+    }
+    jclass cls = (*env)->FindClass(env, class_name);
+    if (cls == NULL || (*env)->ExceptionCheck(env)) {
+        return 0;
+    }
+    if (!(*env)->IsInstanceOf(env, value, cls)) {
+        throw_illegal_state(env, "x");
+        return 0;
+    }
+    return 1;
+}
+
 static jint as_int(JNIEnv *env, jobject value) {
+    if (!ensure_value_type(env, value, "java/lang/Number")) {
+        return 0;
+    }
     jclass cls = (*env)->FindClass(env, "java/lang/Number");
+    if (cls == NULL || (*env)->ExceptionCheck(env)) {
+        return 0;
+    }
     jmethodID mid = (*env)->GetMethodID(env, cls, "intValue", "()I");
-    return (*env)->CallIntMethod(env, value, mid);
+    if (mid == NULL || (*env)->ExceptionCheck(env)) {
+        return 0;
+    }
+    jint result = (*env)->CallIntMethod(env, value, mid);
+    return (*env)->ExceptionCheck(env) ? 0 : result;
 }
 
 static jlong as_long(JNIEnv *env, jobject value) {
+    if (!ensure_value_type(env, value, "java/lang/Number")) {
+        return 0;
+    }
     jclass cls = (*env)->FindClass(env, "java/lang/Number");
+    if (cls == NULL || (*env)->ExceptionCheck(env)) {
+        return 0;
+    }
     jmethodID mid = (*env)->GetMethodID(env, cls, "longValue", "()J");
-    return (*env)->CallLongMethod(env, value, mid);
+    if (mid == NULL || (*env)->ExceptionCheck(env)) {
+        return 0;
+    }
+    jlong result = (*env)->CallLongMethod(env, value, mid);
+    return (*env)->ExceptionCheck(env) ? 0 : result;
 }
 
 static jfloat as_float(JNIEnv *env, jobject value) {
+    if (!ensure_value_type(env, value, "java/lang/Number")) {
+        return 0.0f;
+    }
     jclass cls = (*env)->FindClass(env, "java/lang/Number");
+    if (cls == NULL || (*env)->ExceptionCheck(env)) {
+        return 0.0f;
+    }
     jmethodID mid = (*env)->GetMethodID(env, cls, "floatValue", "()F");
-    return (*env)->CallFloatMethod(env, value, mid);
+    if (mid == NULL || (*env)->ExceptionCheck(env)) {
+        return 0.0f;
+    }
+    jfloat result = (*env)->CallFloatMethod(env, value, mid);
+    return (*env)->ExceptionCheck(env) ? 0.0f : result;
 }
 
 static jdouble as_double(JNIEnv *env, jobject value) {
+    if (!ensure_value_type(env, value, "java/lang/Number")) {
+        return 0.0;
+    }
     jclass cls = (*env)->FindClass(env, "java/lang/Number");
+    if (cls == NULL || (*env)->ExceptionCheck(env)) {
+        return 0.0;
+    }
     jmethodID mid = (*env)->GetMethodID(env, cls, "doubleValue", "()D");
-    return (*env)->CallDoubleMethod(env, value, mid);
+    if (mid == NULL || (*env)->ExceptionCheck(env)) {
+        return 0.0;
+    }
+    jdouble result = (*env)->CallDoubleMethod(env, value, mid);
+    return (*env)->ExceptionCheck(env) ? 0.0 : result;
 }
 
 static jboolean as_boolean(JNIEnv *env, jobject value) {
+    if (!ensure_value_type(env, value, "java/lang/Boolean")) {
+        return JNI_FALSE;
+    }
     jclass cls = (*env)->FindClass(env, "java/lang/Boolean");
+    if (cls == NULL || (*env)->ExceptionCheck(env)) {
+        return JNI_FALSE;
+    }
     jmethodID mid = (*env)->GetMethodID(env, cls, "booleanValue", "()Z");
-    return (*env)->CallBooleanMethod(env, value, mid);
+    if (mid == NULL || (*env)->ExceptionCheck(env)) {
+        return JNI_FALSE;
+    }
+    jboolean result = (*env)->CallBooleanMethod(env, value, mid);
+    return (*env)->ExceptionCheck(env) ? JNI_FALSE : result;
 }
 
 static jchar as_char(JNIEnv *env, jobject value) {
+    if (!ensure_value_type(env, value, "java/lang/Character")) {
+        return 0;
+    }
     jclass cls = (*env)->FindClass(env, "java/lang/Character");
+    if (cls == NULL || (*env)->ExceptionCheck(env)) {
+        return 0;
+    }
     jmethodID mid = (*env)->GetMethodID(env, cls, "charValue", "()C");
-    return (*env)->CallCharMethod(env, value, mid);
+    if (mid == NULL || (*env)->ExceptionCheck(env)) {
+        return 0;
+    }
+    jchar result = (*env)->CallCharMethod(env, value, mid);
+    return (*env)->ExceptionCheck(env) ? 0 : result;
 }
 
 static jobject box_int(JNIEnv *env, jint value) {
@@ -957,6 +1072,29 @@ static jint guard_token_utf(const char *owner, const char *method, jint site) {
     return value == 0U ? (jint) 0x2468ACE1U : (jint) value;
 }
 
+static jint mix32(jint input) {
+    uint32_t value = (uint32_t) input;
+    value ^= value >> 16U;
+    value *= 0x7FEB352DU;
+    value ^= value >> 15U;
+    value *= 0x846CA68BU;
+    value ^= value >> 16U;
+    return value == 0U ? (jint) 0x13579BDFU : (jint) value;
+}
+
+static jint context_tag(jint key, jint resource_hash, jint site, jint owner_hash,
+                        jint method_hash, jint code_length, jint constant_count,
+                        jint return_kind) {
+    uint32_t value = (uint32_t) key ^ (uint32_t) resource_hash ^ RESOURCE_SALT;
+    value ^= rotl32((uint32_t) site * 0x45D9F3BU, 7U);
+    value ^= rotl32((uint32_t) owner_hash, 11U);
+    value ^= rotl32((uint32_t) method_hash, 17U);
+    value ^= rotl32((uint32_t) code_length * 0x27D4EB2DU, 5U);
+    value ^= rotl32((uint32_t) constant_count * 0x9E3779B9U, 13U);
+    value ^= (uint32_t) return_kind * 0x5BD1E995U;
+    return mix32((jint) value);
+}
+
 static uint16_t seal_mask(jint token, jint site, jint index) {
     uint32_t value = (uint32_t) token ^ rotl32((uint32_t) site * 0x27D4EB2DU, 9U);
     value ^= (uint32_t) index * 0x9E3779B9U;
@@ -980,7 +1118,77 @@ static int should_skip_frame(const char *owner, const char *method) {
     return 0;
 }
 
-static jint current_call_token(JNIEnv *env, jint site) {
+static int starts_with_utf(const char *value, const char *prefix) {
+    return strncmp(value, prefix, strlen(prefix)) == 0;
+}
+
+static int reflective_owner(const char *owner) {
+    return starts_with_utf(owner, "java.lang.reflect.")
+            || starts_with_utf(owner, "jdk.internal.reflect.")
+            || starts_with_utf(owner, "sun.reflect.")
+            || starts_with_utf(owner, "java.lang.invoke.");
+}
+
+static int frame_owner_is_reflective(JNIEnv *env, jobjectArray trace, jsize index, jsize count,
+                                     jmethodID get_class_name) {
+    if (index < 0 || index >= count) {
+        return 0;
+    }
+    jobject element = (*env)->GetObjectArrayElement(env, trace, index);
+    if (element == NULL) {
+        return 0;
+    }
+    jstring owner_string = (jstring) (*env)->CallObjectMethod(env, element, get_class_name);
+    if (owner_string == NULL || (*env)->ExceptionCheck(env)) {
+        return 1;
+    }
+    const char *owner = (*env)->GetStringUTFChars(env, owner_string, NULL);
+    if (owner == NULL) {
+        return 1;
+    }
+    int reflective = reflective_owner(owner);
+    (*env)->ReleaseStringUTFChars(env, owner_string, owner);
+    return reflective;
+}
+
+static int same_package_context_after_reflection(JNIEnv *env, jobjectArray trace, jsize index, jsize count,
+                                                jmethodID get_class_name, const char *expected_owner) {
+    if (!frame_owner_is_reflective(env, trace, index + 1, count, get_class_name)) {
+        return 1;
+    }
+    const char *last_dot = strrchr(expected_owner, '.');
+    if (last_dot == NULL || last_dot == expected_owner) {
+        return 0;
+    }
+    size_t prefix_len = (size_t) (last_dot - expected_owner + 1);
+    for (jsize i = index + 2; i < count; i++) {
+        jobject element = (*env)->GetObjectArrayElement(env, trace, i);
+        if (element == NULL) {
+            continue;
+        }
+        jstring owner_string = (jstring) (*env)->CallObjectMethod(env, element, get_class_name);
+        if (owner_string == NULL || (*env)->ExceptionCheck(env)) {
+            return 0;
+        }
+        const char *owner = (*env)->GetStringUTFChars(env, owner_string, NULL);
+        if (owner == NULL) {
+            return 0;
+        }
+        int allowed = strncmp(owner, expected_owner, prefix_len) == 0
+                && !reflective_owner(owner)
+                && strcmp(owner, "java.lang.Thread") != 0;
+        (*env)->ReleaseStringUTFChars(env, owner_string, owner);
+        if (allowed) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static jint current_call_binding_match(JNIEnv *env, jint site,
+                                       jint expected_owner_hash, jint expected_method_hash,
+                                       int require_match,
+                                       jint *owner_hash, jint *method_hash) {
     jclass thread_cls = (*env)->FindClass(env, "java/lang/Thread");
     jclass ste_cls = (*env)->FindClass(env, "java/lang/StackTraceElement");
     if (thread_cls == NULL || ste_cls == NULL) {
@@ -1015,17 +1223,95 @@ static jint current_call_token(JNIEnv *env, jint site) {
             return 0;
         }
         int skip = should_skip_frame(owner, method);
+        jint current_owner_hash = java_hash_utf(owner);
+        jint current_method_hash = java_hash_utf(method);
         jint token = 0;
-        if (!skip) {
+        if (require_match) {
+            if (current_owner_hash == expected_owner_hash
+                    && current_method_hash == expected_method_hash
+                    && same_package_context_after_reflection(env, trace, i, count, get_class_name, owner)) {
+                if (owner_hash != NULL) {
+                    *owner_hash = current_owner_hash;
+                }
+                if (method_hash != NULL) {
+                    *method_hash = current_method_hash;
+                }
+                token = guard_token_utf(owner, method, site);
+            }
+        } else if (!skip) {
+            if (owner_hash != NULL) {
+                *owner_hash = current_owner_hash;
+            }
+            if (method_hash != NULL) {
+                *method_hash = current_method_hash;
+            }
             token = guard_token_utf(owner, method, site);
         }
         (*env)->ReleaseStringUTFChars(env, owner_string, owner);
         (*env)->ReleaseStringUTFChars(env, method_string, method);
-        if (!skip) {
+        if (token != 0) {
             return token;
         }
     }
-    throw_illegal_state(env, "VM call context missing");
+    return 0;
+}
+
+static jint current_call_binding(JNIEnv *env, jint site, jint *owner_hash, jint *method_hash) {
+    return current_call_binding_match(env, site, 0, 0, 0, owner_hash, method_hash);
+}
+
+static jint current_expected_call_binding(JNIEnv *env, jint site,
+                                          jint expected_owner_hash, jint expected_method_hash,
+                                          jint *owner_hash, jint *method_hash) {
+    return current_call_binding_match(env, site, expected_owner_hash, expected_method_hash, 1,
+            owner_hash, method_hash);
+}
+
+static jint current_call_token(JNIEnv *env, jint site) {
+    return current_call_binding(env, site, NULL, NULL);
+}
+
+static int stack_contains_frame(JNIEnv *env, const char *expected_owner, const char *expected_method) {
+    jclass thread_cls = (*env)->FindClass(env, "java/lang/Thread");
+    jclass ste_cls = (*env)->FindClass(env, "java/lang/StackTraceElement");
+    if (thread_cls == NULL || ste_cls == NULL) {
+        return 0;
+    }
+    jmethodID current_thread = (*env)->GetStaticMethodID(env, thread_cls, "currentThread", "()Ljava/lang/Thread;");
+    jmethodID get_stack = (*env)->GetMethodID(env, thread_cls, "getStackTrace", "()[Ljava/lang/StackTraceElement;");
+    jmethodID get_class_name = (*env)->GetMethodID(env, ste_cls, "getClassName", "()Ljava/lang/String;");
+    jmethodID get_method_name = (*env)->GetMethodID(env, ste_cls, "getMethodName", "()Ljava/lang/String;");
+    if (current_thread == NULL || get_stack == NULL || get_class_name == NULL || get_method_name == NULL) {
+        return 0;
+    }
+    jobject thread = (*env)->CallStaticObjectMethod(env, thread_cls, current_thread);
+    jobjectArray trace = thread == NULL ? NULL : (jobjectArray) (*env)->CallObjectMethod(env, thread, get_stack);
+    if (trace == NULL || (*env)->ExceptionCheck(env)) {
+        return 0;
+    }
+    jsize count = (*env)->GetArrayLength(env, trace);
+    for (jsize i = 0; i < count; i++) {
+        jobject element = (*env)->GetObjectArrayElement(env, trace, i);
+        if (element == NULL) {
+            continue;
+        }
+        jstring owner_string = (jstring) (*env)->CallObjectMethod(env, element, get_class_name);
+        jstring method_string = (jstring) (*env)->CallObjectMethod(env, element, get_method_name);
+        if (owner_string == NULL || method_string == NULL || (*env)->ExceptionCheck(env)) {
+            return 0;
+        }
+        const char *owner = (*env)->GetStringUTFChars(env, owner_string, NULL);
+        const char *method = (*env)->GetStringUTFChars(env, method_string, NULL);
+        if (owner == NULL || method == NULL) {
+            return 0;
+        }
+        int matched = strcmp(owner, expected_owner) == 0 && strcmp(method, expected_method) == 0;
+        (*env)->ReleaseStringUTFChars(env, owner_string, owner);
+        (*env)->ReleaseStringUTFChars(env, method_string, method);
+        if (matched) {
+            return 1;
+        }
+    }
     return 0;
 }
 
@@ -1171,6 +1457,9 @@ static jobjectArray decode_resource_constants(JNIEnv *env, vm_code_reader *reade
 static jobject SUSHUO_CALL sushuo_native_vm(
         JNIEnv *env, jclass ignored, jobjectArray program, jobjectArray args) {
     (void) ignored;
+    if (!sushuo_native_security_check(env)) {
+        return NULL;
+    }
 
     jobject first = (*env)->GetObjectArrayElement(env, program, 0);
     jint marker = first != NULL ? as_int(env, first) : 0;
@@ -1213,10 +1502,28 @@ static jobject SUSHUO_CALL sushuo_native_vm(
         jsize map_len = 0;
         jint *map = NULL;
         if (resource_packed) {
+            jobject return_kind_obj = (*env)->GetObjectArrayElement(env, program, 3);
             jobject site_obj = (*env)->GetObjectArrayElement(env, program, 8);
+            jobject constant_count_obj = (*env)->GetObjectArrayElement(env, program, 9);
+            jobject expected_owner_hash_obj = (*env)->GetObjectArrayElement(env, program, 10);
+            jobject expected_method_hash_obj = (*env)->GetObjectArrayElement(env, program, 11);
+            jint return_kind_value = as_int(env, return_kind_obj);
             jint site = as_int(env, site_obj);
-            jint token = current_call_token(env, site);
+            jint constant_count = as_int(env, constant_count_obj);
+            jint expected_owner_hash = as_int(env, expected_owner_hash_obj);
+            jint expected_method_hash = as_int(env, expected_method_hash_obj);
+            jint owner_hash = 0;
+            jint method_hash = 0;
             if ((*env)->ExceptionCheck(env)) {
+                return NULL;
+            }
+            jint token = current_expected_call_binding(env, site, expected_owner_hash, expected_method_hash,
+                    &owner_hash, &method_hash);
+            if ((*env)->ExceptionCheck(env)) {
+                return NULL;
+            }
+            if (token == 0 || owner_hash != expected_owner_hash || method_hash != expected_method_hash) {
+                throw_illegal_state(env, "VM state rejected");
                 return NULL;
             }
             key = key ^ token ^ SEAL_SALT;
@@ -1252,10 +1559,14 @@ static jobject SUSHUO_CALL sushuo_native_vm(
             jint key_tag = read_be32(resource_bytes, 12);
             jint resource_code_len = read_be32(resource_bytes, 16);
             jint payload_len = read_be32(resource_bytes, 20);
+            jint expected_context_tag = read_be32(resource_bytes, 24);
             jint resource_key = key_tag ^ resource_hash ^ RESOURCE_MAGIC ^ nonce;
+            jint actual_context_tag = context_tag(key, resource_hash, site, owner_hash, method_hash,
+                    (jint) code_len, constant_count, return_kind_value);
             jint code_bytes_len = code_len * 4;
-            if (magic != RESOURCE_MAGIC || (version != 1 && version != RESOURCE_VERSION)
+            if (magic != RESOURCE_MAGIC || version != RESOURCE_VERSION
                     || resource_key != key || resource_code_len != code_len
+                    || expected_context_tag != actual_context_tag
                     || payload_len < code_bytes_len
                     || payload_len < 0 || payload_len > resource_len - RESOURCE_HEADER_BYTES) {
                 (*env)->ReleaseByteArrayElements(env, resource_array, resource_bytes, JNI_ABORT);
@@ -1881,19 +2192,45 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     if ((*vm)->GetEnv(vm, (void **) &env, JNI_VERSION_1_8) != JNI_OK || env == NULL) {
         return JNI_ERR;
     }
-    char bridge_name[] = {
-            's','u','s','h','u','o','1','3','3','7','/',
-            's','u','s','h','u','o','p','r','o','t','e','c','t','/',
-            'l','i','b','/','N','a','t','i','v','e','B','r','i','d','g','e','\0'
-    };
-    jclass bridge = (*env)->FindClass(env, bridge_name);
+    if (!sushuo_native_security_check(env)) {
+        return JNI_ERR;
+    }
+    jclass bridge = (*env)->FindClass(env, (const char *) sushuo_bridge_name);
     if (bridge == NULL) {
         return JNI_ERR;
     }
+    const char *native_method_name = NULL;
+    const char *native_method_chars = NULL;
+    jstring native_method_string = NULL;
+    jfieldID native_method_field = (*env)->GetStaticFieldID(env, bridge, "a", "Ljava/lang/String;");
+    if (native_method_field != NULL) {
+        native_method_string = (jstring) (*env)->GetStaticObjectField(env, bridge, native_method_field);
+        if (native_method_string != NULL) {
+            native_method_chars = (*env)->GetStringUTFChars(env, native_method_string, NULL);
+            if (native_method_chars != NULL && native_method_chars[0] != '\0') {
+                native_method_name = native_method_chars;
+            }
+        }
+    } else {
+        if ((*env)->ExceptionCheck(env)) {
+            (*env)->ExceptionClear(env);
+        }
+        return JNI_ERR;
+    }
+    if (native_method_name == NULL) {
+        if (native_method_string != NULL && native_method_chars != NULL) {
+            (*env)->ReleaseStringUTFChars(env, native_method_string, native_method_chars);
+        }
+        return JNI_ERR;
+    }
     JNINativeMethod methods[] = {
-            {"_n", "([Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;", (void *) sushuo_native_vm}
+            {(char *) native_method_name, "([Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;", (void *) sushuo_native_vm}
     };
-    if ((*env)->RegisterNatives(env, bridge, methods, 1) != JNI_OK) {
+    jint registered = (*env)->RegisterNatives(env, bridge, methods, 1);
+    if (native_method_string != NULL && native_method_chars != NULL) {
+        (*env)->ReleaseStringUTFChars(env, native_method_string, native_method_chars);
+    }
+    if (registered != JNI_OK) {
         return JNI_ERR;
     }
     return JNI_VERSION_1_8;

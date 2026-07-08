@@ -23,6 +23,7 @@ import org.objectweb.asm.tree.VarInsnNode;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -42,25 +43,101 @@ final class Virtualizer implements Opcodes {
             Set<String> projectClasses,
             long seed,
             boolean nativeOnly,
+            boolean minecraftMode,
             VmPayloadResources vmPayloadResources,
             TransformStats stats
     ) {
+        virtualize(classNode, runtimeClassName, remapper, projectClasses, seed,
+                nativeOnly, minecraftMode, vmPayloadResources, stats, false, nativeOnly);
+    }
+
+    static void virtualize(
+            ClassNode classNode,
+            String runtimeClassName,
+            Remapper remapper,
+            Set<String> projectClasses,
+            long seed,
+            boolean nativeOnly,
+            boolean minecraftMode,
+            VmPayloadResources vmPayloadResources,
+            TransformStats stats,
+            boolean sdkForcedOnly
+    ) {
+        virtualize(classNode, runtimeClassName, remapper, projectClasses, seed,
+                nativeOnly, minecraftMode, vmPayloadResources, stats, sdkForcedOnly, nativeOnly);
+    }
+
+    static void virtualize(
+            ClassNode classNode,
+            String runtimeClassName,
+            Remapper remapper,
+            Set<String> projectClasses,
+            long seed,
+            boolean nativeOnly,
+            boolean minecraftMode,
+            VmPayloadResources vmPayloadResources,
+            TransformStats stats,
+            boolean sdkForcedOnly,
+            boolean guardProgramAccess
+    ) {
         List<MethodNode> extraMethods = new ArrayList<>();
+        Set<String> usedProgramMethodKeys = new HashSet<>();
         for (MethodNode method : classNode.methods) {
-            VirtualProgram program = tryCompile(classNode, method, remapper, projectClasses, seed);
+            usedProgramMethodKeys.add(method.name + method.desc);
+        }
+        Random programNameRandom = new Random(seed ^ classNode.name.hashCode() ^ 0x56504E4D4554484CL);
+        for (MethodNode method : classNode.methods) {
+            if (sdkForcedOnly && !SDKMarkerSupport.forceVirtualize(classNode, method)) {
+                continue;
+            }
+            VirtualProgram program = tryCompile(classNode, method, remapper, projectClasses, seed, minecraftMode);
             if (program == null) {
                 continue;
             }
             if (nativeOnly && vmPayloadResources != null) {
                 program = program.withResourceName(vmPayloadResources.add(program, classNode.name, method.name, method.desc));
             }
-            String dataMethodName = "_vp$" + program.id();
+            String dataMethodName = nextProgramMethodName(programNameRandom, usedProgramMethodKeys,
+                    classNode.name, method.name, method.desc, program.id());
             extraMethods.add(VirtualProgramEmitter.createProgramMethod(
-                    classNode.name, dataMethodName, program, nativeOnly, runtimeClassName));
+                    classNode.name, dataMethodName, program, nativeOnly, runtimeClassName, guardProgramAccess));
             replaceBody(method, runtimeClassName, classNode.name, dataMethodName, program);
             stats.addVirtualizedMethod(program.code().length);
         }
         classNode.methods.addAll(extraMethods);
+    }
+
+    private static String nextProgramMethodName(Random random, Set<String> usedMethodKeys,
+                                                String owner, String name, String desc, int id) {
+        int attempt = 0;
+        while (true) {
+            int a = outerMix((int) random.nextLong()
+                    ^ owner.hashCode()
+                    ^ Integer.rotateLeft(name.hashCode(), 7)
+                    ^ Integer.rotateLeft(desc.hashCode(), 13)
+                    ^ id * 0x45D9F3B
+                    ^ attempt);
+            int b = outerMix((int) (random.nextLong() >>> 32)
+                    ^ Integer.rotateLeft(a, 11)
+                    ^ owner.length() * 0x27D4EB2D
+                    ^ attempt * 0x9E3779B9);
+            String candidate = "_"
+                    + Integer.toUnsignedString(a, 36)
+                    + Integer.toUnsignedString(b, 36);
+            if (usedMethodKeys.add(candidate + "()[Ljava/lang/Object;")) {
+                return candidate;
+            }
+            attempt++;
+        }
+    }
+
+    private static int outerMix(int value) {
+        value ^= value >>> 16;
+        value *= 0x7FEB352D;
+        value ^= value >>> 15;
+        value *= 0x846CA68B;
+        value ^= value >>> 16;
+        return value == 0 ? 0x13579BDF : value;
     }
 
     private static VirtualProgram tryCompile(
@@ -68,7 +145,8 @@ final class Virtualizer implements Opcodes {
             MethodNode method,
             Remapper remapper,
             Set<String> projectClasses,
-            long seed
+            long seed,
+            boolean minecraftMode
     ) {
         if ((method.access & (ACC_ABSTRACT | ACC_NATIVE)) != 0) {
             return null;
@@ -76,7 +154,13 @@ final class Virtualizer implements Opcodes {
         if (method.name.equals("<init>") || method.name.equals("<clinit>") || method.name.equals("main")) {
             return null;
         }
+        if (SDKMarkerSupport.noProtect(method)) {
+            return null;
+        }
         if (method.tryCatchBlocks != null && !method.tryCatchBlocks.isEmpty()) {
+            return null;
+        }
+        if (minecraftMode && isMinecraftRuntimeSensitive(classNode, method)) {
             return null;
         }
         Type methodType = Type.getMethodType(method.desc);
@@ -103,6 +187,95 @@ final class Virtualizer implements Opcodes {
 
     private static boolean isSupportedReturn(Type type) {
         return type.getSort() == Type.VOID || isSupportedArgument(type);
+    }
+
+    private static boolean isMinecraftRuntimeSensitive(ClassNode classNode, MethodNode method) {
+        if (mentionsMinecraftAsyncType(method.desc)) {
+            return true;
+        }
+        if (implementsAny(classNode,
+                "java/lang/Runnable",
+                "java/util/concurrent/Callable",
+                "java/util/function/Supplier",
+                "java/util/function/Consumer",
+                "java/util/function/Function",
+                "java/util/function/BiFunction",
+                "java/util/function/Predicate")
+                && switch (method.name) {
+                    case "run", "call", "get", "accept", "apply", "test" -> true;
+                    default -> false;
+                }) {
+            return true;
+        }
+        for (AbstractInsnNode instruction = method.instructions == null ? null
+                : method.instructions.getFirst(); instruction != null; instruction = instruction.getNext()) {
+            if (instruction instanceof MethodInsnNode methodInsn) {
+                if (isMinecraftAsyncOwner(methodInsn.owner)
+                        || mentionsMinecraftAsyncType(methodInsn.desc)
+                        || isAsyncCompletableFutureCall(methodInsn)) {
+                    return true;
+                }
+            } else if (instruction instanceof FieldInsnNode fieldInsn) {
+                if (isMinecraftAsyncOwner(fieldInsn.owner) || mentionsMinecraftAsyncType(fieldInsn.desc)) {
+                    return true;
+                }
+            } else if (instruction instanceof TypeInsnNode typeInsn) {
+                if (isMinecraftAsyncOwner(typeInsn.desc) || mentionsMinecraftAsyncType(typeInsn.desc)) {
+                    return true;
+                }
+            } else if (instruction instanceof LdcInsnNode ldc && ldc.cst instanceof Type type) {
+                if (mentionsMinecraftAsyncType(type.getDescriptor())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean implementsAny(ClassNode classNode, String... interfaces) {
+        if (classNode.interfaces == null || classNode.interfaces.isEmpty()) {
+            return false;
+        }
+        for (String implemented : classNode.interfaces) {
+            for (String candidate : interfaces) {
+                if (implemented.equals(candidate)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isMinecraftAsyncOwner(String owner) {
+        return owner != null && (owner.startsWith("java/util/concurrent/")
+                || owner.startsWith("java/util/function/")
+                || owner.equals("java/lang/Thread")
+                || owner.equals("java/lang/Runnable"));
+    }
+
+    private static boolean mentionsMinecraftAsyncType(String descriptor) {
+        if (descriptor == null) {
+            return false;
+        }
+        return descriptor.contains("java/util/concurrent/")
+                || descriptor.contains("java/util/function/")
+                || descriptor.contains("java/lang/Thread")
+                || descriptor.contains("java/lang/Runnable");
+    }
+
+    private static boolean isAsyncCompletableFutureCall(MethodInsnNode instruction) {
+        if (!"java/util/concurrent/CompletableFuture".equals(instruction.owner)) {
+            return false;
+        }
+        return switch (instruction.name) {
+            case "cancel", "allOf", "anyOf", "join", "get", "getNow",
+                    "complete", "completeExceptionally", "whenComplete", "handle",
+                    "thenApply", "thenAccept", "thenRun", "thenCompose",
+                    "thenCombine", "runAsync", "supplyAsync" -> true;
+            default -> instruction.name.startsWith("then")
+                    || instruction.name.endsWith("Async")
+                    || instruction.name.contains("Complete");
+        };
     }
 
     private static void replaceBody(

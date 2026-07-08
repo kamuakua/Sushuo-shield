@@ -21,10 +21,24 @@ final class StringEncryptor implements Opcodes {
     }
 
     static int encrypt(ClassNode classNode, String runtimeClassName, ShieldRemapper remapper, long seed) {
+        return encrypt(classNode, runtimeClassName, remapper, seed, false);
+    }
+
+    static int encryptForcedMutate(ClassNode classNode, String runtimeClassName, ShieldRemapper remapper, long seed) {
+        return encrypt(classNode, runtimeClassName, remapper, seed, true);
+    }
+
+    private static int encrypt(ClassNode classNode, String runtimeClassName, ShieldRemapper remapper,
+                               long seed, boolean forcedMutateOnly) {
         int count = 0;
         Random random = new Random(seed ^ classNode.name.hashCode() ^ 0x6A09E667F3BCC909L);
         String mappedOwner = remapper.map(classNode.name);
         for (MethodNode method : classNode.methods) {
+            if (method.instructions == null
+                    || SDKMarkerSupport.noProtect(method)
+                    || forcedMutateOnly && !SDKMarkerSupport.forceMutate(classNode, method)) {
+                continue;
+            }
             int site = 0;
             String mappedMethod = remapper.mapMethodName(classNode.name, method.name, method.desc);
             for (AbstractInsnNode instruction = method.instructions.getFirst(); instruction != null; ) {

@@ -17,27 +17,59 @@ final class ClassTransformer {
             VmPayloadResources vmPayloadResources,
             TransformStats stats
     ) {
-        if (options.stripDebug()) {
+        if (options.scrambleLineNumbers()) {
+            stats.addScrambledLineNumbers(LineNumberScrambler.scramble(classNode, options.seed()));
+        } else if (options.stripDebug()) {
             DebugStripper.strip(classNode);
         }
         if (options.isExcluded(classNode.name)) {
             return;
         }
+        if (options.sdkMarkers()) {
+            stats.addAntiDeobfuscationArtifacts(SDKMarkerSupport.promoteMarkerBlocks(classNode));
+            stats.addAntiDeobfuscationArtifacts(SDKMarkerSupport.stripMarkerCalls(classNode));
+            if (SDKMarkerSupport.noProtect(classNode)) {
+                return;
+            }
+        }
+        if (options.encryptResources() && !options.minecraftMode()) {
+            ResourceAccessRewriter.rewrite(classNode, runtimeClassName);
+        }
+        if (options.antiAiDeobfuscation()) {
+            stats.addAntiDeobfuscationArtifacts(AntiDeobfuscationNoise.inject(classNode, runtimeClassName, options.seed()));
+        }
+        if (options.referenceObfuscation()) {
+            stats.addReferenceObfuscatedCalls(ReferenceObfuscator.obfuscate(classNode, runtimeClassName, remapper, projectClasses));
+        }
         if (options.virtualize()) {
             Virtualizer.virtualize(classNode, runtimeClassName, remapper, projectClasses,
-                    options.seed(), options.requireNativeVm(), vmPayloadResources, stats);
+                    options.seed(), options.requireNativeVm(), options.minecraftMode(), vmPayloadResources, stats,
+                    false, options.requireNativeVm() || options.antiAiDeobfuscation());
+        } else if (options.sdkMarkers()) {
+            Virtualizer.virtualize(classNode, runtimeClassName, remapper, projectClasses,
+                    options.seed(), options.requireNativeVm(), options.minecraftMode(), vmPayloadResources, stats, true,
+                    options.requireNativeVm() || options.antiAiDeobfuscation());
         }
         if (options.encryptStrings()) {
             stats.addEncryptedStrings(MetadataEncryptor.encrypt(classNode, runtimeClassName, options.seed()));
         }
         if (options.encryptStrings()) {
             stats.addEncryptedStrings(StringEncryptor.encrypt(classNode, runtimeClassName, remapper, options.seed()));
+        } else if (options.sdkMarkers()) {
+            stats.addEncryptedStrings(StringEncryptor.encryptForcedMutate(classNode, runtimeClassName, remapper, options.seed()));
         }
         if (options.obfuscateNumbers()) {
             stats.addObfuscatedNumbers(NumberObfuscator.obfuscate(classNode, runtimeClassName, remapper, options.seed()));
+        } else if (options.sdkMarkers()) {
+            stats.addObfuscatedNumbers(NumberObfuscator.obfuscateForcedMutate(classNode, runtimeClassName, remapper, options.seed()));
         }
         if (options.controlFlow()) {
             stats.addControlFlowGuards(ControlFlowObfuscator.apply(classNode, runtimeClassName));
+            if (options.antiAiDeobfuscation() && !options.minecraftMode()) {
+                stats.addControlFlowGuards(ExceptionFlowObfuscator.apply(classNode, runtimeClassName, options.seed()));
+            }
+        } else if (options.sdkMarkers()) {
+            stats.addControlFlowGuards(ControlFlowObfuscator.applyForcedMutate(classNode, runtimeClassName));
         }
     }
 }

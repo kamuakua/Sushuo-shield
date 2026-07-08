@@ -18,12 +18,26 @@ final class ControlFlowObfuscator implements Opcodes {
     }
 
     static int apply(ClassNode classNode, String runtimeClassName) {
+        return apply(classNode, runtimeClassName, false);
+    }
+
+    static int applyForcedMutate(ClassNode classNode, String runtimeClassName) {
+        return apply(classNode, runtimeClassName, true);
+    }
+
+    private static int apply(ClassNode classNode, String runtimeClassName, boolean forcedMutateOnly) {
         int count = 0;
         for (MethodNode method : classNode.methods) {
             if (method.instructions == null || method.instructions.size() == 0) {
                 continue;
             }
             if ((method.access & (ACC_ABSTRACT | ACC_NATIVE)) != 0 || method.name.equals("<init>")) {
+                continue;
+            }
+            if (SDKMarkerSupport.noProtect(method)) {
+                continue;
+            }
+            if (forcedMutateOnly && !SDKMarkerSupport.forceMutate(classNode, method)) {
                 continue;
             }
 

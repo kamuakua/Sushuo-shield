@@ -2,15 +2,24 @@ package biz.sushuo.shield.runtime;
 
 public final class NativeOnlyRuntime {
     private static volatile int state = 0x13572468;
-    private static final boolean NATIVE_READY = loadNative();
+    private static volatile int nativeLoadState;
     private static final int NATIVE_MAGIC = 0x53534E32;
     private static final int NATIVE_VERSION = 2;
+    private static final boolean ANTI_DEBUG = Boolean.parseBoolean("%%SUSHUO_ANTI_DEBUG%%");
+    private static final boolean ANTI_VM = Boolean.parseBoolean("%%SUSHUO_ANTI_VM%%");
+    private static final int LICENSE_HASH = parseOptionInt("%%SUSHUO_LICENSE_HASH%%");
+    private static final String INTEGRITY_RESOURCE = "%%SUSHUO_INTEGRITY_RESOURCE%%";
+    private static final int INTEGRITY_HASH = parseOptionInt("%%SUSHUO_INTEGRITY_HASH%%");
+    private static final String SELF_HASH = "J$7e9a2d4f00000000";
+    private static final String SELF_HASH_PREFIX = "J$7e9a2d4f";
+    private static volatile int integrityState;
 
     private NativeOnlyRuntime() {
     }
 
     public static Object _v(Object[] program, Object[] args) {
-        if (!NATIVE_READY) {
+        _o();
+        if (!nativeReady()) {
             throw new IllegalStateException("Native VM is required but unavailable.");
         }
         return NativeBridge._n(program, args);
@@ -97,7 +106,18 @@ public final class NativeOnlyRuntime {
         return builder.toString();
     }
 
+    public static Object _rs(String owner, String name, String descriptor, Object[] args) {
+        _o();
+        return invoke(owner, name, descriptor, args);
+    }
+
+    public static Object _ri(String owner, String name, String descriptor, Object target, Object[] args, int invokeOpcode) {
+        _o();
+        return invoke(owner, name, descriptor, args, target, invokeOpcode);
+    }
+
     public static boolean _o() {
+        securityCheck();
         int local = state;
         local ^= (int) System.nanoTime();
         local = Integer.rotateLeft(local + 0x45d9f3b, 7);
@@ -105,19 +125,424 @@ public final class NativeOnlyRuntime {
         return local != 0 || System.currentTimeMillis() >= 0L;
     }
 
+    private static void securityCheck() {
+        if (ANTI_DEBUG && debuggerPresent()) {
+            throw new IllegalStateException("Protected application cannot run under debugger.");
+        }
+        if (ANTI_VM && virtualMachineEnvironment()) {
+            throw new IllegalStateException("Protected application cannot run inside this VM environment.");
+        }
+        if (LICENSE_HASH != 0 && !licenseAccepted()) {
+            throw new IllegalStateException("Protected application license check failed.");
+        }
+        if (INTEGRITY_HASH != 0 && !integrityAccepted()) {
+            throw new IllegalStateException("Protected application integrity check failed.");
+        }
+    }
+
+    private static boolean debuggerPresent() {
+        try {
+            java.util.List<String> args = java.lang.management.ManagementFactory.getRuntimeMXBean().getInputArguments();
+            for (String arg : args) {
+                String lower = arg.toLowerCase(java.util.Locale.ROOT);
+                if (lower.contains("jdwp") || lower.contains("-xdebug")
+                        || lower.contains("javaagent") && lower.contains("debug")) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return Boolean.getBoolean("%%SUSHUO_DEBUGGER_PROPERTY%%");
+    }
+
+    private static boolean virtualMachineEnvironment() {
+        String joined = (System.getProperty("java.vm.name", "") + ' '
+                + System.getProperty("java.vm.vendor", "") + ' '
+                + System.getProperty("os.name", "") + ' '
+                + System.getenv("PROCESSOR_IDENTIFIER") + ' '
+                + System.getenv("COMPUTERNAME")).toLowerCase(java.util.Locale.ROOT);
+        return joined.contains("virtualbox")
+                || joined.contains("vmware")
+                || joined.contains("qemu")
+                || joined.contains("bochs")
+                || joined.contains("xen")
+                || joined.contains("hyper-v")
+                || joined.contains("vbox");
+    }
+
+    private static boolean licenseAccepted() {
+        String license = System.getProperty("%%SUSHUO_LICENSE_PROPERTY%%");
+        if (license == null || license.isEmpty()) {
+            license = System.getenv("%%SUSHUO_LICENSE_ENV%%");
+        }
+        return license != null && licenseHash(license) == LICENSE_HASH;
+    }
+
+    private static int licenseHash(String value) {
+        int hash = 0x53534C4B;
+        for (int i = 0; i < value.length(); i++) {
+            hash ^= value.charAt(i) * 0x45D9F3B;
+            hash = Integer.rotateLeft(hash + 0x7F4A7C15, 9);
+            hash ^= hash >>> 16;
+            hash *= 0x85EBCA6B;
+        }
+        hash ^= hash >>> 13;
+        hash *= 0xC2B2AE35;
+        hash ^= hash >>> 16;
+        return hash == 0 ? 0x13579BDF : hash;
+    }
+
+    private static int parseOptionInt(String value) {
+        try {
+            return Integer.parseInt(value);
+        } catch (RuntimeException ignored) {
+            return 0;
+        }
+    }
+
+    private static boolean integrityAccepted() {
+        int local = integrityState;
+        if (local == 1) {
+            return true;
+        }
+        if (local == 2) {
+            return false;
+        }
+        synchronized (NativeOnlyRuntime.class) {
+            local = integrityState;
+            if (local == 0) {
+                integrityState = verifyIntegrityResource() ? 1 : 2;
+            }
+            return integrityState == 1;
+        }
+    }
+
+    private static boolean verifyIntegrityResource() {
+        if (INTEGRITY_RESOURCE == null || INTEGRITY_RESOURCE.isEmpty() || INTEGRITY_RESOURCE.startsWith("%%")) {
+            return false;
+        }
+        if (!verifySelfClass()) {
+            return false;
+        }
+        try (java.io.InputStream input = NativeOnlyRuntime.class.getResourceAsStream(INTEGRITY_RESOURCE)) {
+            if (input == null) {
+                return false;
+            }
+            byte[] data = input.readAllBytes();
+            return integrityHash(data, NativeOnlyRuntime.class.getName(), INTEGRITY_RESOURCE) == INTEGRITY_HASH;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static boolean verifySelfClass() {
+        int expected = parseSelfHash();
+        if (expected == 0) {
+            return false;
+        }
+        String runtimeName = NativeOnlyRuntime.class.getName();
+        String classResource = "/" + runtimeName.replace('.', '/') + ".class";
+        try (java.io.InputStream input = NativeOnlyRuntime.class.getResourceAsStream(classResource)) {
+            if (input == null) {
+                return false;
+            }
+            byte[] data = input.readAllBytes();
+            byte[] normalized = normalizeSelfHashConstant(data);
+            return integrityHash(normalized, runtimeName, "self:" + runtimeName) == expected;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static int parseSelfHash() {
+        try {
+            if (SELF_HASH == null || !SELF_HASH.startsWith(SELF_HASH_PREFIX)
+                    || SELF_HASH.length() < SELF_HASH_PREFIX.length() + 8) {
+                return 0;
+            }
+            long value = Long.parseLong(SELF_HASH.substring(SELF_HASH_PREFIX.length(), SELF_HASH_PREFIX.length() + 8), 16);
+            return (int) value;
+        } catch (RuntimeException ignored) {
+            return 0;
+        }
+    }
+
+    private static byte[] normalizeSelfHashConstant(byte[] data) {
+        byte[] out = data.clone();
+        byte[] prefix = SELF_HASH_PREFIX.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        for (int i = 0; i <= out.length - prefix.length - 8; i++) {
+            boolean matched = true;
+            for (int j = 0; j < prefix.length; j++) {
+                if (out[i + j] != prefix[j]) {
+                    matched = false;
+                    break;
+                }
+            }
+            if (!matched) {
+                continue;
+            }
+            boolean hex = true;
+            for (int j = 0; j < 8; j++) {
+                if (!isHex(out[i + prefix.length + j])) {
+                    hex = false;
+                    break;
+                }
+            }
+            if (hex) {
+                for (int j = 0; j < 8; j++) {
+                    out[i + prefix.length + j] = '0';
+                }
+            }
+        }
+        return out;
+    }
+
+    private static boolean isHex(byte value) {
+        return value >= '0' && value <= '9'
+                || value >= 'a' && value <= 'f'
+                || value >= 'A' && value <= 'F';
+    }
+
+    private static int integrityHash(byte[] payload, String runtimeClassName, String resourceName) {
+        int hash = 0x53534943 ^ runtimeClassName.hashCode() ^ resourceName.hashCode() ^ payload.length;
+        for (int i = 0; i < payload.length; i++) {
+            hash ^= (payload[i] & 0xFF) * 0x45D9F3B;
+            hash = Integer.rotateLeft(hash + 0x7F4A7C15 + i, 9);
+            hash ^= hash >>> 16;
+            hash *= 0x85EBCA6B;
+        }
+        hash ^= hash >>> 13;
+        hash *= 0xC2B2AE35;
+        hash ^= hash >>> 16;
+        return hash == 0 ? 0x13579BDF : hash;
+    }
+
+    private static Object invoke(String owner, String name, String descriptor, Object[] args) {
+        return invoke(owner, name, descriptor, args, null, 184);
+    }
+
+    private static Object invoke(String owner, String name, String descriptor, Object[] args, Object target, int invokeOpcode) {
+        try {
+            Class<?> type = classForInternal(owner);
+            Class<?>[] parameterTypes = parameterTypes(descriptor);
+            java.lang.reflect.Method method = findMethod(type, name, parameterTypes);
+            method.setAccessible(true);
+            Object value = method.invoke(invokeOpcode == 184 ? null : target, coerceArgs(parameterTypes, args));
+            Class<?> returnType = returnType(descriptor);
+            return returnType == Void.TYPE ? Void.TYPE : normalizeReturn(returnType, value);
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
+    private static java.lang.reflect.Method findMethod(Class<?> type, String name, Class<?>[] parameterTypes)
+            throws NoSuchMethodException {
+        Class<?> cursor = type;
+        while (cursor != null) {
+            try {
+                return cursor.getDeclaredMethod(name, parameterTypes);
+            } catch (NoSuchMethodException ignored) {
+                cursor = cursor.getSuperclass();
+            }
+        }
+        return type.getMethod(name, parameterTypes);
+    }
+
+    private static Object normalizeReturn(Class<?> type, Object value) {
+        if (type == Void.TYPE) {
+            return Void.TYPE;
+        }
+        if (type == Boolean.TYPE) {
+            return Boolean.TRUE.equals(value) ? 1 : 0;
+        }
+        if (type == Character.TYPE) {
+            return value instanceof Character character ? (int) character.charValue() : value;
+        }
+        if (type == Byte.TYPE || type == Short.TYPE) {
+            return ((Number) value).intValue();
+        }
+        return value;
+    }
+
+    private static Object[] coerceArgs(Class<?>[] parameterTypes, Object[] args) {
+        Object[] coerced = new Object[args.length];
+        for (int i = 0; i < args.length; i++) {
+            coerced[i] = coerce(parameterTypes[i], args[i]);
+        }
+        return coerced;
+    }
+
+    private static Object coerce(Class<?> target, Object value) {
+        if (!target.isPrimitive() || value == null) {
+            return value;
+        }
+        if (target == Boolean.TYPE) {
+            return value instanceof Boolean bool ? bool : ((Number) value).intValue() != 0;
+        }
+        if (target == Character.TYPE) {
+            return value instanceof Character character ? character : (char) ((Number) value).intValue();
+        }
+        if (target == Byte.TYPE) {
+            return ((Number) value).byteValue();
+        }
+        if (target == Short.TYPE) {
+            return ((Number) value).shortValue();
+        }
+        if (target == Integer.TYPE) {
+            return ((Number) value).intValue();
+        }
+        if (target == Long.TYPE) {
+            return ((Number) value).longValue();
+        }
+        if (target == Float.TYPE) {
+            return ((Number) value).floatValue();
+        }
+        if (target == Double.TYPE) {
+            return ((Number) value).doubleValue();
+        }
+        return value;
+    }
+
+    private static Class<?>[] parameterTypes(String descriptor) throws ClassNotFoundException {
+        java.util.ArrayList<Class<?>> types = new java.util.ArrayList<>();
+        int index = 1;
+        while (descriptor.charAt(index) != ')') {
+            types.add(parseClass(descriptor, index));
+            index = nextTypeIndex(descriptor, index);
+        }
+        return types.toArray(Class<?>[]::new);
+    }
+
+    private static Class<?> returnType(String descriptor) throws ClassNotFoundException {
+        return parseClass(descriptor, descriptor.indexOf(')') + 1);
+    }
+
+    private static Class<?> parseClass(String descriptor, int index) throws ClassNotFoundException {
+        char kind = descriptor.charAt(index);
+        return switch (kind) {
+            case 'V' -> Void.TYPE;
+            case 'Z' -> Boolean.TYPE;
+            case 'C' -> Character.TYPE;
+            case 'B' -> Byte.TYPE;
+            case 'S' -> Short.TYPE;
+            case 'I' -> Integer.TYPE;
+            case 'J' -> Long.TYPE;
+            case 'F' -> Float.TYPE;
+            case 'D' -> Double.TYPE;
+            case 'L' -> {
+                int end = descriptor.indexOf(';', index);
+                yield Class.forName(descriptor.substring(index + 1, end).replace('/', '.'));
+            }
+            case '[' -> {
+                int cursor = nextTypeIndex(descriptor, index);
+                yield Class.forName(descriptor.substring(index, cursor).replace('/', '.'));
+            }
+            default -> throw new IllegalArgumentException("Bad descriptor: " + descriptor);
+        };
+    }
+
+    private static Class<?> classForInternal(String internalName) throws ClassNotFoundException {
+        return Class.forName(internalName.replace('/', '.'));
+    }
+
+    private static int nextTypeIndex(String descriptor, int index) {
+        int cursor = index;
+        while (descriptor.charAt(cursor) == '[') {
+            cursor++;
+        }
+        if (descriptor.charAt(cursor) == 'L') {
+            return descriptor.indexOf(';', cursor) + 1;
+        }
+        return cursor + 1;
+    }
+
     public static void _g(String owner, String method) {
         StackTraceElement[] trace = Thread.currentThread().getStackTrace();
         for (int i = 0; i < trace.length - 1; i++) {
             StackTraceElement current = trace[i];
-            if (owner.equals(current.getClassName()) && current.getMethodName().startsWith("_vp$")) {
-                StackTraceElement caller = trace[i + 1];
-                if (owner.equals(caller.getClassName()) && method.equals(caller.getMethodName())) {
-                    return;
-                }
-                break;
+            StackTraceElement caller = trace[i + 1];
+            if (owner.equals(current.getClassName())
+                    && owner.equals(caller.getClassName())
+                    && method.equals(caller.getMethodName())
+                    && !method.equals(current.getMethodName())) {
+                return;
             }
         }
         throw new IllegalStateException("VM program access denied.");
+    }
+
+    public static java.io.InputStream _rl(ClassLoader loader, String name) {
+        _o();
+        java.io.InputStream in = loader == null
+                ? ClassLoader.getSystemResourceAsStream(name)
+                : loader.getResourceAsStream(name);
+        return resourceStream(in);
+    }
+
+    public static java.io.InputStream _rc(Class clazz, String name) {
+        _o();
+        if (clazz == null) {
+            return null;
+        }
+        return resourceStream(clazz.getResourceAsStream(name));
+    }
+
+    public static java.io.InputStream _rg(String name) {
+        _o();
+        return resourceStream(ClassLoader.getSystemResourceAsStream(name));
+    }
+
+    private static java.io.InputStream resourceStream(java.io.InputStream in) {
+        if (in == null) {
+            return null;
+        }
+        try {
+            byte[] data = in.readAllBytes();
+            if (data.length < 16 || readInt(data, 0) != 0x53535233 || readInt(data, 4) != 1) {
+                return new java.io.ByteArrayInputStream(data);
+            }
+            int nonce = readInt(data, 8);
+            int length = readInt(data, 12);
+            if (length < 0 || length > data.length - 16) {
+                return new java.io.ByteArrayInputStream(data);
+            }
+            byte[] decoded = new byte[length];
+            int local = resourceState(nonce, length, NativeOnlyRuntime.class.getName());
+            for (int i = 0; i < length; i++) {
+                local = resourceStream(local, i);
+                decoded[i] = (byte) (data[16 + i] ^ (local >>> 24));
+            }
+            return new java.io.ByteArrayInputStream(decoded);
+        } catch (java.io.IOException ignored) {
+            return null;
+        } finally {
+            try {
+                in.close();
+            } catch (java.io.IOException ignored) {
+            }
+        }
+    }
+
+    private static int readInt(byte[] data, int offset) {
+        return (data[offset] & 0xFF) << 24
+                | (data[offset + 1] & 0xFF) << 16
+                | (data[offset + 2] & 0xFF) << 8
+                | (data[offset + 3] & 0xFF);
+    }
+
+    private static int resourceState(int nonce, int length, String runtimeClassName) {
+        int local = nonce ^ length ^ runtimeClassName.hashCode() ^ 0x53535233;
+        local = mix(local ^ Integer.rotateLeft(runtimeClassName.length() * 0x45D9F3B, 7));
+        return mix(local ^ 0x7F4A7C15);
+    }
+
+    private static int resourceStream(int local, int index) {
+        local ^= index * 0x45D9F3B;
+        local = Integer.rotateLeft(local + 0x7F4A7C15, 9);
+        local ^= local >>> 13;
+        local *= 0x5BD1E995;
+        local ^= local >>> 15;
+        return local;
     }
 
     private static boolean loadNative() {
@@ -128,8 +553,25 @@ public final class NativeOnlyRuntime {
         }
     }
 
+    private static boolean nativeReady() {
+        int local = nativeLoadState;
+        if (local == 1) {
+            return true;
+        }
+        if (local == 2) {
+            return false;
+        }
+        synchronized (NativeOnlyRuntime.class) {
+            local = nativeLoadState;
+            if (local == 0) {
+                nativeLoadState = loadNative() ? 1 : 2;
+            }
+            return nativeLoadState == 1;
+        }
+    }
+
     private static boolean loadEmbeddedNative() {
-        String mapped = System.mapLibraryName("sushuo1337_vm");
+        String mapped = System.mapLibraryName("%%SUSHUO_NATIVE_LIBRARY%%");
         String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
         String arch = System.getProperty("os.arch", "").toLowerCase(java.util.Locale.ROOT);
         if (!os.contains("win") || !(arch.contains("64") || arch.equals("amd64") || arch.equals("x86_64"))) {
@@ -141,7 +583,7 @@ public final class NativeOnlyRuntime {
                 return false;
             }
             java.io.File dir = new java.io.File(System.getProperty("java.io.tmpdir"),
-                    "sushuo1337-" + Integer.toHexString(resource.hashCode()));
+                    "j" + Integer.toHexString(resource.hashCode()));
             if (!dir.isDirectory() && !dir.mkdirs()) {
                 return false;
             }
@@ -160,10 +602,10 @@ public final class NativeOnlyRuntime {
     private static boolean loadPathNative() {
         String path = System.getProperty("java.library.path", "");
         String separator = System.getProperty("path.separator", ";");
-        String library = System.mapLibraryName("sushuo1337_vm");
+        String library = System.mapLibraryName("%%SUSHUO_NATIVE_LIBRARY%%");
         for (String part : path.split(java.util.regex.Pattern.quote(separator))) {
             if (!part.isEmpty() && new java.io.File(part, library).isFile()) {
-                System.loadLibrary("sushuo1337_vm");
+                System.loadLibrary("%%SUSHUO_NATIVE_LIBRARY%%");
                 return true;
             }
         }

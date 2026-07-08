@@ -17,10 +17,24 @@ final class NumberObfuscator implements Opcodes {
     }
 
     static int obfuscate(ClassNode classNode, String runtimeClassName, ShieldRemapper remapper, long seed) {
+        return obfuscate(classNode, runtimeClassName, remapper, seed, false);
+    }
+
+    static int obfuscateForcedMutate(ClassNode classNode, String runtimeClassName, ShieldRemapper remapper, long seed) {
+        return obfuscate(classNode, runtimeClassName, remapper, seed, true);
+    }
+
+    private static int obfuscate(ClassNode classNode, String runtimeClassName, ShieldRemapper remapper,
+                                 long seed, boolean forcedMutateOnly) {
         int count = 0;
         Random random = new Random(seed ^ classNode.name.hashCode() ^ 0xBB67AE8584CAA73BL);
         String mappedOwner = remapper.map(classNode.name);
         for (MethodNode method : classNode.methods) {
+            if (method.instructions == null
+                    || SDKMarkerSupport.noProtect(method)
+                    || forcedMutateOnly && !SDKMarkerSupport.forceMutate(classNode, method)) {
+                continue;
+            }
             int site = 0;
             String mappedMethod = remapper.mapMethodName(classNode.name, method.name, method.desc);
             for (AbstractInsnNode instruction = method.instructions.getFirst(); instruction != null; ) {

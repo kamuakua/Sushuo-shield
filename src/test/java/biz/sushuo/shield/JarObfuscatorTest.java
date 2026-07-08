@@ -68,7 +68,8 @@ final class JarObfuscatorTest {
         assertTrue(result.virtualizedMethods() >= 3);
         assertTrue(result.runtimeClassName().startsWith("sushuo1337/sushuoprotect/lib/"));
         String listing = listJar(output);
-        assertTrue(listing.contains("sushuo1337/sushuoprotect/lib/NativeBridge.class"));
+        assertFalse(listing.contains("NativeBridge.class"));
+        assertTrue(listing.matches("(?s).*sushuo1337/sushuoprotect/lib/B[0-9a-z]+\\.class.*"));
         assertTrue(listing.contains("sushuo1337/sushuoprotect/lib/"));
         String nativeEntry = nativeEntryName(output);
         assertTrue(nativeEntry.startsWith("sushuo1337/sushuoprotect/lib/native/windows-x64/N"));

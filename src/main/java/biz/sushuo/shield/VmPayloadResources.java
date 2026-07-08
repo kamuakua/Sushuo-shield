@@ -11,7 +11,7 @@ import java.util.Map;
 final class VmPayloadResources {
     static final int RESOURCE_MARKER = 0x53535234; // SSR4
     static final int RESOURCE_MAGIC = 0x6D4F9B17;
-    static final int RESOURCE_VERSION = 2;
+    static final int RESOURCE_VERSION = 3;
     static final int CODE_SALT = 0x41C64E6D;
     static final int MAP_SALT = 0x27D4EB2D;
     static final int PACKED_CHUNK_BYTES = 64;
@@ -134,15 +134,29 @@ final class VmPayloadResources {
                     resourceHash, program.code().length, payload.length, i, nativeSecret));
         }
 
-        ByteBuffer buffer = ByteBuffer.allocate(24 + encoded.length).order(ByteOrder.BIG_ENDIAN);
+        ByteBuffer buffer = ByteBuffer.allocate(28 + encoded.length).order(ByteOrder.BIG_ENDIAN);
         buffer.putInt(RESOURCE_MAGIC);
         buffer.putInt(RESOURCE_VERSION);
         buffer.putInt(nonce);
         buffer.putInt(keyTag);
         buffer.putInt(program.code().length);
         buffer.putInt(encoded.length);
+        buffer.putInt(contextTag(program, resourceHash));
         buffer.put(encoded);
         return buffer.array();
+    }
+
+    private static int contextTag(VirtualProgram program, int resourceHash) {
+        int ownerHash = program.owner().replace('/', '.').hashCode();
+        int methodHash = program.hostMethod().hashCode();
+        int value = program.key() ^ resourceHash ^ RESOURCE_SALT;
+        value ^= Integer.rotateLeft(program.id() * 0x45D9F3B, 7);
+        value ^= Integer.rotateLeft(ownerHash, 11);
+        value ^= Integer.rotateLeft(methodHash, 17);
+        value ^= Integer.rotateLeft(program.code().length * 0x27D4EB2D, 5);
+        value ^= Integer.rotateLeft(program.constants().size() * 0x9E3779B9, 13);
+        value ^= program.returnKind() * 0x5BD1E995;
+        return mix(value);
     }
 
     private static byte[] packMetadata(VirtualProgram program) {

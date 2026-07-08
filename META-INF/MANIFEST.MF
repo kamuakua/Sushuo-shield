@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Created-By: 25.0.1 (Eclipse Adoptium)
+Main-Class: sushuo1337.sushuoprotect.lib.C2khlpe4y4zv082olhx7kb10uoc
+
