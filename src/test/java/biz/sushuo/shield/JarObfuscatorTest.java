@@ -1,5 +1,8 @@
 package biz.sushuo.shield;
 
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.MethodNode;
 import org.junit.jupiter.api.Test;
 
 import javax.tools.ToolProvider;
@@ -543,6 +546,127 @@ final class JarObfuscatorTest {
                 """, readJarText(output, "kamclient.mixins.json"));
     }
 
+    @Test
+    void strongMemberRenamePreservesSwingCallbackNames() throws Exception {
+        Path temp = Files.createTempDirectory("sushuo-shield-swing-callbacks");
+        Path sourceRoot = Files.createDirectories(temp.resolve("src/demo"));
+        Path classRoot = Files.createDirectories(temp.resolve("classes"));
+        writeSource(sourceRoot.resolve("SwingCallbacks.java"), """
+                package demo;
+                import java.awt.Graphics;
+                import java.awt.event.KeyAdapter;
+                import java.awt.event.KeyEvent;
+                import java.awt.event.WindowAdapter;
+                import java.awt.event.WindowEvent;
+                import javax.swing.JPanel;
+
+                public final class SwingCallbacks {
+                    public static final class Board extends JPanel {
+                        @Override
+                        protected void paintComponent(Graphics g) {
+                            super.paintComponent(g);
+                        }
+                    }
+                    public static final class Keys extends KeyAdapter {
+                        @Override
+                        public void keyPressed(KeyEvent event) {
+                        }
+                    }
+                    public static final class WindowClose extends WindowAdapter {
+                        @Override
+                        public void windowClosing(WindowEvent event) {
+                        }
+                    }
+                }
+                """);
+
+        int compileResult = ToolProvider.getSystemJavaCompiler()
+                .run(null, null, null, "-d", classRoot.toString(), sourceRoot.resolve("SwingCallbacks.java").toString());
+        assertEquals(0, compileResult);
+
+        Path input = temp.resolve("input.jar");
+        createJar(input, classRoot, "demo.SwingCallbacks");
+        Path output = temp.resolve("output.jar");
+
+        new JarObfuscator().obfuscate(ObfuscationOptions.builder()
+                .input(input)
+                .output(output)
+                .seed(998877L)
+                .renameClasses(false)
+                .renameMembers(true)
+                .renamePublicMembers(true)
+                .encryptStrings(false)
+                .obfuscateNumbers(false)
+                .virtualize(false)
+                .controlFlow(false)
+                .build());
+
+        assertTrue(jarClassHasMethod(output, "demo/SwingCallbacks$Board.class",
+                "paintComponent", "(Ljava/awt/Graphics;)V"));
+        assertTrue(jarClassHasMethod(output, "demo/SwingCallbacks$Keys.class",
+                "keyPressed", "(Ljava/awt/event/KeyEvent;)V"));
+        assertTrue(jarClassHasMethod(output, "demo/SwingCallbacks$WindowClose.class",
+                "windowClosing", "(Ljava/awt/event/WindowEvent;)V"));
+    }
+
+    @Test
+    void parameterObfuscationLeavesNonPrivateMethodDescriptorsStable() throws Exception {
+        Path temp = Files.createTempDirectory("sushuo-shield-parameter-safety");
+        Path sourceRoot = Files.createDirectories(temp.resolve("src/demo"));
+        Path classRoot = Files.createDirectories(temp.resolve("classes"));
+        writeSource(sourceRoot.resolve("ParameterApp.java"), """
+                package demo;
+
+                public final class ParameterApp {
+                    public static void main(String[] args) {
+                        System.out.println(new ParameterApp().visible(40));
+                    }
+
+                    final int visible(int value) {
+                        return helper(value) + 1;
+                    }
+
+                    private int helper(int value) {
+                        return value + 1;
+                    }
+                }
+                """);
+
+        int compileResult = ToolProvider.getSystemJavaCompiler()
+                .run(null, null, null, "-d", classRoot.toString(), sourceRoot.resolve("ParameterApp.java").toString());
+        assertEquals(0, compileResult);
+
+        Path input = temp.resolve("input.jar");
+        createJar(input, classRoot, "demo.ParameterApp");
+        Path output = temp.resolve("output.jar");
+
+        new JarObfuscator().obfuscate(ObfuscationOptions.builder()
+                .input(input)
+                .output(output)
+                .seed(123456L)
+                .renameClasses(false)
+                .renameMembers(false)
+                .encryptStrings(false)
+                .obfuscateNumbers(false)
+                .virtualize(false)
+                .controlFlow(false)
+                .methodParameterObfuscation(true)
+                .build());
+
+        assertTrue(jarClassHasMethod(output, "demo/ParameterApp.class", "visible", "(I)I"));
+        assertTrue(jarClassHasMethod(output, "demo/ParameterApp.class", "helper", "(II)I")
+                || jarClassHasMethod(output, "demo/ParameterApp.class", "helper", "(IJ)I")
+                || jarClassHasMethod(output, "demo/ParameterApp.class", "helper", "(ILjava/lang/Object;)I"));
+
+        Process process = new ProcessBuilder(javaBin(), "-jar", output.toString())
+                .redirectErrorStream(true)
+                .start();
+        String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
+                .replace("\r\n", "\n");
+        assertEquals(0, process.waitFor());
+        assertEquals("42\n", stdout);
+    }
+
     private static void createJar(Path jar, Path classRoot, String mainClass) throws IOException {
         createJar(jar, classRoot, mainClass, Map.of());
     }
@@ -586,6 +710,26 @@ final class JarObfuscatorTest {
         try (java.util.jar.JarFile jarFile = new java.util.jar.JarFile(jar.toFile())) {
             JarEntry entry = jarFile.getJarEntry(name);
             return jarFile.getInputStream(entry).readAllBytes();
+        }
+    }
+
+    private static boolean jarClassHasMethod(Path jar, String name, String methodName, String descriptor) throws IOException {
+        ClassNode classNode = readJarClass(jar, name);
+        for (MethodNode method : classNode.methods) {
+            if (method.name.equals(methodName) && method.desc.equals(descriptor)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static ClassNode readJarClass(Path jar, String name) throws IOException {
+        try (java.util.jar.JarFile jarFile = new java.util.jar.JarFile(jar.toFile())) {
+            JarEntry entry = jarFile.getJarEntry(name);
+            ClassReader reader = new ClassReader(jarFile.getInputStream(entry).readAllBytes());
+            ClassNode classNode = new ClassNode();
+            reader.accept(classNode, 0);
+            return classNode;
         }
     }
 

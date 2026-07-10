@@ -4,5 +4,7 @@ target/
 *.dll
 *.so
 *.dylib
+hs_err_pid*.log
+src.zip
 .idea/
 *.iml

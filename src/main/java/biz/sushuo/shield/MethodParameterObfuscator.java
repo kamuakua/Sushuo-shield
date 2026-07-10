@@ -129,9 +129,7 @@ final class MethodParameterObfuscator implements Opcodes {
             return null;
         }
         boolean privateMethod = (method.access & ACC_PRIVATE) != 0;
-        boolean staticMethod = (method.access & ACC_STATIC) != 0;
-        boolean finalMethod = (method.access & ACC_FINAL) != 0 || (owner.access & ACC_FINAL) != 0;
-        if (!privateMethod && !staticMethod && !finalMethod) {
+        if (!privateMethod) {
             return null;
         }
 

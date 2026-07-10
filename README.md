@@ -27,7 +27,7 @@ java -jar target\sushuo-shield-1.0.0.jar input.jar output.jar --preset sushuo133
 Multi-mode presets:
 
 ```powershell
-# JNIC-style: native-required VM, encrypted per-method VM resources,
+# JNIC-style: native-required VM, per-method VM resources,
 # reference indirection, string/number/control-flow hardening, anti-AI decoys.
 java -jar target\sushuo-shield-1.0.0.jar input.jar output-jnic.jar --mode jnic
 
@@ -55,6 +55,7 @@ Extra switches:
 --anti-vm                    reject obvious VirtualBox/VMware/QEMU/Hyper-V-like environments
 --license-key <value>        bind output to a runtime key supplied as -Dsushuo.license=value or SUSHUO_LICENSE=value
 --method-parameters          add unused dummy parameters and rewrite project call sites before other layers
+--resource-encryption        encrypt ordinary non-class resources; keep off unless all resource reads are tested
 --report-file <path>         write a ZKM-style change log / protection report with mappings and counters
 ```
 
@@ -100,7 +101,7 @@ Anti-deobfuscation / anti-AI layer:
 - native VM payload resources use a v3 header bound to the real Java call context; the C VM checks the current class/method, VM site id, return kind, resource name, code length, constant count, and per-output native secret before it releases any VM word
 - adds an encrypted `meta/W*.bin` watermark/seal resource in strong non-Minecraft modes; the injected runtime verifies this resource on first `_o()` execution and rejects jars where the seal has been removed or modified
 - binds that seal to the injected runtime class bytes; patching the runtime, disabling `_g(...)`, changing native-load behavior, or removing the runtime class makes the first security check fail
-- optionally mutates method descriptors by adding unused `int`/`long`/`Object` parameters and rewrites all in-jar direct call sites before name mapping, reference obfuscation, virtualization, string encryption, and number mutation
+- optionally mutates private method descriptors by adding unused `int`/`long`/`Object` parameters and rewrites all in-jar direct call sites before name mapping, reference obfuscation, virtualization, string encryption, and number mutation
 - adds ZKM/VMP-style exception-flow traps in strong non-Minecraft modes: guarded dead branches plus synthetic `Throwable` catch/rethrow blocks that preserve normal behavior while confusing decompiler control-flow recovery
 - automatically skips excluded classes, `@NoProtect` classes/methods, obvious reflection-heavy classes, bootstrap method-handle targets, constructors, `main`, native/abstract/varargs/bridge methods, and public/protected API methods
 
@@ -120,6 +121,7 @@ java -jar target\sushuo-shield-1.0.0.jar input.jar protected.jar --mode zkm26 --
 The report is written outside the protected jar and includes mode/options,
 runtime/native/watermark resource names, protection counters, class mappings,
 method mappings, and field mappings for debugging, auditing, and release records.
+Treat it as sensitive release material and do not ship it with protected jars.
 
 Strongest mode forces the virtualized code through the embedded native VM and
 uses randomized encrypted native/resource names. In this mode the Java runtime is

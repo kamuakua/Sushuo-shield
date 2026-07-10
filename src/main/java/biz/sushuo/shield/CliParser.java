@@ -266,7 +266,7 @@ final class CliParser {
                         .antiVm(false)
                         .methodParameterObfuscation(false)
                         .rewriteTextResources(true)
-                        .encryptResources(true)
+                        .encryptResources(false)
                         .requireNativeVm(true)
                         .minecraftMode(false)
                         .namePrefix("sushuo1337/sushuoprotect/jnic/");
@@ -289,7 +289,7 @@ final class CliParser {
                         .antiVm(false)
                         .methodParameterObfuscation(true)
                         .rewriteTextResources(true)
-                        .encryptResources(true)
+                        .encryptResources(false)
                         .requireNativeVm(false)
                         .minecraftMode(false)
                         .namePrefix("sushuo1337/sushuoprotect/zkm/");
@@ -312,7 +312,7 @@ final class CliParser {
                         .antiVm(true)
                         .methodParameterObfuscation(false)
                         .rewriteTextResources(true)
-                        .encryptResources(true)
+                        .encryptResources(false)
                         .requireNativeVm(true)
                         .minecraftMode(false)
                         .namePrefix("sushuo1337/sushuoprotect/vmp/");
@@ -335,7 +335,7 @@ final class CliParser {
                         .antiVm(true)
                         .methodParameterObfuscation(true)
                         .rewriteTextResources(true)
-                        .encryptResources(true)
+                        .encryptResources(false)
                         .requireNativeVm(true)
                         .minecraftMode(false)
                         .namePrefix("sushuo1337/sushuoprotect/vmp/");
@@ -358,7 +358,7 @@ final class CliParser {
                         .controlFlow(true)
                         .stripDebug(true)
                         .rewriteTextResources(true)
-                        .encryptResources(true)
+                        .encryptResources(false)
                         .requireNativeVm(true)
                         .namePrefix("sushuo1337/sushuoprotect/lib/");
             }

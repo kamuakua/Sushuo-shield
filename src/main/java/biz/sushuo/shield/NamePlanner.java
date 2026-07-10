@@ -151,6 +151,9 @@ final class NamePlanner implements Opcodes {
         if ((owner.access & ACC_ENUM) != 0 && (method.name.equals("values") || method.name.equals("valueOf"))) {
             return false;
         }
+        if (isFrameworkCallback(method)) {
+            return false;
+        }
         if (strongMemberRename && !isLikelyOverride(method)) {
             return true;
         }
@@ -202,9 +205,77 @@ final class NamePlanner implements Opcodes {
         return switch (method.name) {
             case "toString", "hashCode", "equals", "compareTo", "iterator", "forEach", "spliterator",
                     "run", "call", "get", "accept", "apply", "test", "onEnable", "onDisable",
-                    "toggle", "getName", "getDescription", "getCategory", "isEnabled" -> true;
+                    "toggle", "getName", "getDescription", "getCategory", "isEnabled",
+                    "clone", "finalize", "readObject", "readResolve", "writeObject", "writeReplace" -> true;
             default -> false;
         };
+    }
+
+    private static boolean isFrameworkCallback(MethodNode method) {
+        String name = method.name;
+        String desc = method.desc;
+        if (name.equals("paint") || name.equals("paintComponent") || name.equals("paintChildren")
+                || name.equals("paintBorder") || name.equals("update")) {
+            return desc.equals("(Ljava/awt/Graphics;)V");
+        }
+        if (name.equals("actionPerformed")) {
+            return desc.equals("(Ljava/awt/event/ActionEvent;)V");
+        }
+        if (name.equals("keyPressed") || name.equals("keyReleased") || name.equals("keyTyped")) {
+            return desc.equals("(Ljava/awt/event/KeyEvent;)V");
+        }
+        if (name.equals("mouseClicked") || name.equals("mousePressed") || name.equals("mouseReleased")
+                || name.equals("mouseEntered") || name.equals("mouseExited")) {
+            return desc.equals("(Ljava/awt/event/MouseEvent;)V");
+        }
+        if (name.equals("mouseDragged") || name.equals("mouseMoved")) {
+            return desc.equals("(Ljava/awt/event/MouseEvent;)V");
+        }
+        if (name.equals("mouseWheelMoved")) {
+            return desc.equals("(Ljava/awt/event/MouseWheelEvent;)V");
+        }
+        if (name.equals("windowOpened") || name.equals("windowClosing") || name.equals("windowClosed")
+                || name.equals("windowIconified") || name.equals("windowDeiconified")
+                || name.equals("windowActivated") || name.equals("windowDeactivated")
+                || name.equals("windowGainedFocus") || name.equals("windowLostFocus")
+                || name.equals("windowStateChanged")) {
+            return desc.equals("(Ljava/awt/event/WindowEvent;)V");
+        }
+        if (name.equals("componentResized") || name.equals("componentMoved")
+                || name.equals("componentShown") || name.equals("componentHidden")) {
+            return desc.equals("(Ljava/awt/event/ComponentEvent;)V");
+        }
+        if (name.equals("focusGained") || name.equals("focusLost")) {
+            return desc.equals("(Ljava/awt/event/FocusEvent;)V");
+        }
+        if (name.equals("itemStateChanged")) {
+            return desc.equals("(Ljava/awt/event/ItemEvent;)V");
+        }
+        if (name.equals("stateChanged")) {
+            return desc.equals("(Ljavax/swing/event/ChangeEvent;)V");
+        }
+        if (name.equals("propertyChange")) {
+            return desc.equals("(Ljava/beans/PropertyChangeEvent;)V");
+        }
+        if (name.equals("valueChanged")) {
+            return desc.equals("(Ljavax/swing/event/ListSelectionEvent;)V")
+                    || desc.equals("(Ljavax/swing/event/TreeSelectionEvent;)V");
+        }
+        if (name.equals("insertUpdate") || name.equals("removeUpdate") || name.equals("changedUpdate")) {
+            return desc.equals("(Ljavax/swing/event/DocumentEvent;)V");
+        }
+        if (name.equals("tableChanged")) {
+            return desc.equals("(Ljavax/swing/event/TableModelEvent;)V");
+        }
+        if (name.equals("init") || name.equals("start") || name.equals("stop") || name.equals("destroy")) {
+            return desc.equals("()V");
+        }
+        if (name.equals("doGet") || name.equals("doPost") || name.equals("doPut")
+                || name.equals("doDelete") || name.equals("doHead") || name.equals("doOptions")
+                || name.equals("doTrace")) {
+            return desc.startsWith("(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;");
+        }
+        return false;
     }
 
     private static String nextClassName(String prefix, Random random, Set<String> usedClasses) {
