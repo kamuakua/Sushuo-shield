@@ -19,22 +19,376 @@ static volatile unsigned char sushuo_native_secret[16] = {
         0x6D, 0x55, 0x42, 0x7E
 };
 
-static volatile char sushuo_bridge_name[] = "sushuo1337/sushuoprotect/lib/NativeBridge";
+static volatile unsigned char sushuo_bridge_name_obf[] = {
+        0x8F, 0x4A, 0x01, 0xDD, 0x9D, 0x44, 0x5F, 0x92, 0xD7, 0x10, 0x35, 0x2E, 0xE5, 0xA0, 0x7E, 0x3C, 0xE3, 0xBF, 0x70, 0x2A, 0xCC, 0x9E, 0x5D, 0x05, 0x9B, 0x9B, 0x43, 0x0F, 0x8F, 0xAD, 0x47, 0x6D, 0x35, 0xE9, 0xB7, 0x57, 0x3A, 0xE2, 0xAA, 0x66, 0x21, 0x00
+};
+static char sushuo_bridge_name_buf[sizeof(sushuo_bridge_name_obf)];
+
+static const char *sushuo_bridge_name_plain(void) {
+    size_t len = sizeof(sushuo_bridge_name_obf) - 1U;
+    for (size_t i = 0; i < len; i++) {
+        unsigned char mask = (unsigned char) (0xA7U ^ (unsigned char) (i * 0x3DU + 0x5BU));
+        sushuo_bridge_name_buf[i] = (char) (sushuo_bridge_name_obf[i] ^ mask);
+    }
+    sushuo_bridge_name_buf[len] = '\0';
+    return sushuo_bridge_name_buf;
+}
+
+/* sushuo encoded native literals */
+static const char *ss_dec(int id);
+#define SS(ID) ss_dec(ID)
+static char *ss_decode(volatile unsigned char *input, unsigned int length, unsigned char key, char *output) {
+    for (unsigned int i = 0; i < length; i++) {
+        unsigned char mask = (unsigned char) (key + (unsigned char) (i * 73U) + (unsigned char) ((i >> 1U) * 17U) + 0xA5U);
+        output[i] = (char) (input[i] ^ mask);
+    }
+    output[length] = '\0';
+    return output;
+}
+static volatile unsigned char ss_lit_0[] = {0xD1};
+static char ss_buf_0[sizeof(ss_lit_0) + 1U];
+static volatile unsigned char ss_lit_1[] = {0x54, 0x1A, 0xB9, 0x6D, 0x1D};
+static char ss_buf_1[sizeof(ss_lit_1) + 1U];
+static volatile unsigned char ss_lit_2[] = {0x11, 0xE1, 0xB6, 0x10, 0xD8};
+static char ss_buf_2[sizeof(ss_lit_2) + 1U];
+static volatile unsigned char ss_lit_3[] = {0x09, 0xC9, 0x6F};
+static char ss_buf_3[sizeof(ss_lit_3) + 1U];
+static volatile unsigned char ss_lit_4[] = {0xC4, 0x92, 0x68};
+static char ss_buf_4[sizeof(ss_lit_4) + 1U];
+static volatile unsigned char ss_lit_5[] = {0x8A, 0x77, 0x2F, 0x8D, 0x4A, 0x27, 0x9D, 0x45, 0x24, 0xFA, 0x41, 0x07, 0xEE, 0xAB, 0x0A, 0xD2, 0xB3, 0x6F, 0xD3, 0x9A, 0x72, 0xD2, 0x85, 0x73, 0x2F, 0x83, 0x73, 0x2C, 0x8D, 0x58};
+static char ss_buf_5[sizeof(ss_lit_5) + 1U];
+static volatile unsigned char ss_lit_6[] = {0x63, 0x33, 0xDA, 0x94, 0x60, 0xF4, 0x93, 0x55, 0xF2, 0xF1, 0x71, 0xED, 0xB7, 0x41, 0x19, 0xA6, 0x4D, 0x39, 0xB0, 0x6C, 0x13, 0xD5, 0x4F, 0x2B, 0xCE, 0x93, 0x20, 0xED, 0x9A, 0x53, 0xF8};
+static char ss_buf_6[sizeof(ss_lit_6) + 1U];
+static volatile unsigned char ss_lit_7[] = {0x9C};
+static char ss_buf_7[sizeof(ss_lit_7) + 1U];
+static volatile unsigned char ss_lit_8[] = {0xC9, 0x8D, 0x30, 0xEE, 0xC6, 0x5E, 0xED, 0xBB, 0x48, 0x57, 0x91, 0x77, 0x14, 0xCD, 0x6B};
+static char ss_buf_8[sizeof(ss_lit_8) + 1U];
+static volatile unsigned char ss_lit_9[] = {0x93, 0x58, 0xE3, 0xB2, 0x5F, 0xF0, 0xB2, 0x53, 0xF2, 0xAA, 0x46, 0x2D, 0xB5, 0x5C, 0x1D, 0xC0, 0x69, 0x34, 0xC2};
+static char ss_buf_9[sizeof(ss_lit_9) + 1U];
+static volatile unsigned char ss_lit_10[] = {0x23, 0x18, 0xC4, 0x96, 0x27, 0xFB, 0xDB, 0x51, 0xF6, 0x8E, 0x5D, 0xAC, 0x8E, 0x52, 0xF2, 0xA0, 0x4D, 0x0B, 0xFD, 0x26, 0x25, 0xD8, 0x6D, 0x23, 0xCE, 0xD7, 0x3B, 0xF4, 0xDA, 0x77, 0xF6, 0x91, 0x4E, 0xF0, 0x8D, 0x53, 0xF3, 0xAF, 0x45, 0x00, 0xFC};
+static char ss_buf_10[sizeof(ss_lit_10) + 1U];
+static volatile unsigned char ss_lit_11[] = {0x54, 0xE6, 0x97, 0x4B, 0xAB, 0xA4, 0x48, 0x5F, 0x83, 0x7D, 0x1D, 0xC3, 0x64, 0x0A, 0xC7, 0x8E, 0x33, 0xFE, 0x94};
+static char ss_buf_11[sizeof(ss_lit_11) + 1U];
+static volatile unsigned char ss_lit_12[] = {0xCC, 0x62, 0x00, 0xCE};
+static char ss_buf_12[sizeof(ss_lit_12) + 1U];
+static volatile unsigned char ss_lit_13[] = {0xC6, 0x6C, 0xD3, 0xF3, 0x7D};
+static char ss_buf_13[sizeof(ss_lit_13) + 1U];
+static volatile unsigned char ss_lit_14[] = {0x70, 0x30, 0xD9, 0x8C, 0x3C};
+static char ss_buf_14[sizeof(ss_lit_14) + 1U];
+static volatile unsigned char ss_lit_15[] = {0x0A, 0x42, 0x93};
+static char ss_buf_15[sizeof(ss_lit_15) + 1U];
+static volatile unsigned char ss_lit_16[] = {0x0F, 0xCF, 0x7E, 0x30, 0x84, 0x9D, 0x21, 0xB8, 0xB3, 0x43, 0xE0, 0xB8, 0x76, 0xF2, 0xA8, 0x42, 0x04, 0x89, 0x55, 0x1D, 0xB3, 0x79, 0x12, 0xFC, 0x7D, 0x20, 0xC9, 0x94, 0x22};
+static char ss_buf_16[sizeof(ss_lit_16) + 1U];
+static volatile unsigned char ss_lit_17[] = {0xB1, 0xBF, 0x5E, 0x10, 0xA7, 0x22};
+static char ss_buf_17[sizeof(ss_lit_17) + 1U];
+static volatile unsigned char ss_lit_18[] = {0xD0, 0x82, 0x23, 0xE7, 0x88};
+static char ss_buf_18[sizeof(ss_lit_18) + 1U];
+static volatile unsigned char ss_lit_19[] = {0xCA, 0x70, 0xC7, 0x87, 0x61, 0x58, 0x9D};
+static char ss_buf_19[sizeof(ss_lit_19) + 1U];
+static volatile unsigned char ss_lit_20[] = {0x47, 0x13, 0x94, 0x66, 0x0D, 0xA7, 0x5D, 0x17, 0xCD, 0x69, 0x1B};
+static char ss_buf_20[sizeof(ss_lit_20) + 1U];
+static volatile unsigned char ss_lit_21[] = {0x23, 0x7D, 0xF5, 0xB5};
+static char ss_buf_21[sizeof(ss_lit_21) + 1U];
+static volatile unsigned char ss_lit_22[] = {0xD6, 0x64, 0x29, 0xC9, 0x2D, 0x27, 0xC4, 0x80, 0x2F, 0xBE, 0xAA, 0x46, 0xFC, 0xB6, 0x48, 0x33, 0xBA, 0x79, 0x12, 0xB8, 0x55, 0x16, 0xC9, 0x49, 0x06, 0xEB, 0x6C, 0x39, 0xC8, 0x8B, 0x3A, 0xD7, 0x94, 0x56, 0xEA, 0xA8, 0x46, 0x12, 0xBA, 0x70};
+static char ss_buf_22[sizeof(ss_lit_22) + 1U];
+static volatile unsigned char ss_lit_23[] = {0xB3, 0x43, 0x0A, 0xA4, 0x30, 0x04, 0xA3, 0x65, 0x02, 0x81, 0x46, 0x24, 0xC6, 0x96, 0x2B, 0xE5};
+static char ss_buf_23[sizeof(ss_lit_23) + 1U];
+static volatile unsigned char ss_lit_24[] = {0xCF, 0x81, 0x3D, 0xC4, 0x8D, 0x59, 0xFA, 0xBD};
+static char ss_buf_24[sizeof(ss_lit_24) + 1U];
+static volatile unsigned char ss_lit_25[] = {0xBC, 0xF4, 0x7E};
+static char ss_buf_25[sizeof(ss_lit_25) + 1U];
+static volatile unsigned char ss_lit_26[] = {0x97, 0x2B, 0xF0, 0x80, 0x17, 0xEB, 0x88, 0x58, 0xE2};
+static char ss_buf_26[sizeof(ss_lit_26) + 1U];
+static volatile unsigned char ss_lit_27[] = {0xF6, 0x0E, 0xCB};
+static char ss_buf_27[sizeof(ss_lit_27) + 1U];
+static volatile unsigned char ss_lit_28[] = {0x36, 0xF5, 0x9C, 0x5D, 0xE2, 0x89, 0x58, 0xEE, 0xA9, 0x40};
+static char ss_buf_28[sizeof(ss_lit_28) + 1U];
+static volatile unsigned char ss_lit_29[] = {0x00, 0x58, 0x8D};
+static char ss_buf_29[sizeof(ss_lit_29) + 1U];
+static volatile unsigned char ss_lit_30[] = {0xC1, 0x81, 0x3D, 0xF3, 0x87, 0x51, 0xD8, 0xB6, 0x5D, 0x0F, 0xB1};
+static char ss_buf_30[sizeof(ss_lit_30) + 1U];
+static volatile unsigned char ss_lit_31[] = {0x5A, 0x92, 0x51};
+static char ss_buf_31[sizeof(ss_lit_31) + 1U];
+static volatile unsigned char ss_lit_32[] = {0x5B, 0x1B, 0xA2, 0x7C, 0x58, 0xAC, 0x7B, 0x0D, 0xDA, 0x29, 0x22, 0xC6, 0x6C, 0x20, 0xC3, 0x8E, 0x27};
+static char ss_buf_32[sizeof(ss_lit_32) + 1U];
+static volatile unsigned char ss_lit_33[] = {0x7D, 0x07, 0xAD, 0x67, 0x00, 0xCF, 0x66, 0x07, 0xCA, 0x98, 0x3B, 0xF2};
+static char ss_buf_33[sizeof(ss_lit_33) + 1U];
+static volatile unsigned char ss_lit_34[] = {0xC9, 0x03, 0xDE};
+static char ss_buf_34[sizeof(ss_lit_34) + 1U];
+static volatile unsigned char ss_lit_35[] = {0xDC, 0x9E, 0x2F, 0xC3, 0xD3, 0x29, 0xFE, 0x86, 0x25, 0xA4, 0xA6, 0x46, 0xE9, 0xA3, 0x4A, 0x17, 0xBA, 0x72, 0x03};
+static char ss_buf_35[sizeof(ss_lit_35) + 1U];
+static volatile unsigned char ss_lit_36[] = {0x0E, 0xDE, 0x71, 0x2B, 0xE5, 0x9D, 0x3A, 0xEA, 0x9C};
+static char ss_buf_36[sizeof(ss_lit_36) + 1U];
+static volatile unsigned char ss_lit_37[] = {0x78, 0xB0, 0xB0};
+static char ss_buf_37[sizeof(ss_lit_37) + 1U];
+static volatile unsigned char ss_lit_38[] = {0x65, 0x39, 0xC4, 0x9A, 0x7A, 0xF2, 0x99, 0x2F, 0xFC, 0xCB, 0x77, 0xE9, 0x95, 0x4F, 0xE3, 0xA8, 0x55};
+static char ss_buf_38[sizeof(ss_lit_38) + 1U];
+static volatile unsigned char ss_lit_39[] = {0xB0, 0x6E, 0x05, 0xC7, 0x69, 0x1A, 0xC9};
+static char ss_buf_39[sizeof(ss_lit_39) + 1U];
+static volatile unsigned char ss_lit_40[] = {0xB8, 0x90, 0x1A, 0x30, 0xBC, 0x7E, 0x0F, 0xA3, 0x33, 0x09, 0xDE, 0x66, 0x05, 0x84, 0x4C, 0x20, 0xDC, 0x94, 0x2C, 0xF1, 0x9C, 0x0C};
+static char ss_buf_40[sizeof(ss_lit_40) + 1U];
+static volatile unsigned char ss_lit_41[] = {0x9D, 0xA4, 0x71, 0xED, 0x91, 0x25, 0xE8, 0x86, 0x6E, 0xE6, 0x85, 0x43, 0xE0, 0xFF, 0x68, 0x1C, 0xA2, 0x7A, 0x15, 0xD8, 0x7D, 0x67};
+static char ss_buf_41[sizeof(ss_lit_41) + 1U];
+static volatile unsigned char ss_lit_42[] = {0xE8, 0xAA, 0x53, 0x0F, 0xE7, 0x7D, 0x0A, 0xDA, 0x69, 0x78, 0xF3, 0x83, 0x20, 0xF8};
+static char ss_buf_42[sizeof(ss_lit_42) + 1U];
+static volatile unsigned char ss_lit_43[] = {0xF6, 0x65, 0xA8, 0x86, 0x4E, 0x0C, 0xB1, 0x71, 0x45, 0xDF, 0x6C, 0x38, 0xD7, 0xD6, 0x11, 0xE5, 0x82, 0x5A, 0xA2};
+static char ss_buf_43[sizeof(ss_lit_43) + 1U];
+static volatile unsigned char ss_lit_44[] = {0xBD, 0x41, 0x0C, 0xA2, 0x32, 0x0A, 0xA1, 0x67, 0x04, 0x83, 0x55, 0x27, 0xC6, 0x80, 0x38};
+static char ss_buf_44[sizeof(ss_lit_44) + 1U];
+static volatile unsigned char ss_lit_45[] = {0x1B, 0x2F, 0xFF, 0x53, 0x13, 0xA3, 0x6A, 0x04, 0x90, 0x64, 0x03, 0xC5, 0x62, 0x61, 0xFB, 0x99, 0x24, 0xE6, 0x9A, 0x0C};
+static char ss_buf_45[sizeof(ss_lit_45) + 1U];
+static volatile unsigned char ss_lit_46[] = {0xAC, 0x8E, 0x0E, 0x3C, 0xA0, 0x72, 0x1B, 0xD7, 0x3F, 0x35, 0xD2, 0x92, 0x31, 0xB0, 0xBA, 0x2A, 0xFD, 0x97, 0x5E, 0xEB, 0x96, 0x4E, 0xF7, 0xF5};
+static char ss_buf_46[sizeof(ss_lit_46) + 1U];
+static volatile unsigned char ss_lit_47[] = {0x51, 0xE5, 0xA8, 0x46, 0xAE, 0xA6, 0x45, 0x03, 0xA0, 0x3F, 0x26, 0xDC, 0x63, 0x31};
+static char ss_buf_47[sizeof(ss_lit_47) + 1U];
+static volatile unsigned char ss_lit_48[] = {0xBF, 0xAA, 0x13, 0xCF, 0xB7, 0x47, 0xF6, 0xA8, 0x0C, 0x00, 0xA7, 0x61, 0x0E, 0x9D, 0x40, 0x3A, 0xC1, 0x9F, 0x69};
+static char ss_buf_48[sizeof(ss_lit_48) + 1U];
+static volatile unsigned char ss_lit_49[] = {0xFA, 0xB8, 0x45, 0x1D, 0xF9, 0x73, 0x18, 0xAC, 0x7B, 0x4A, 0xF9, 0x64, 0x0D, 0xCA, 0x71};
+static char ss_buf_49[sizeof(ss_lit_49) + 1U];
+static volatile unsigned char ss_lit_50[] = {0xC4, 0x73, 0xA6, 0x94, 0x58, 0x1A, 0xA3, 0x7F, 0x57, 0xAD, 0x7A, 0x0A, 0xD9, 0x28, 0x27, 0xC6, 0x6B, 0x2C, 0xD3, 0xCB};
+static char ss_buf_50[sizeof(ss_lit_50) + 1U];
+static volatile unsigned char ss_lit_51[] = {0x8F, 0x4F, 0xFE, 0xB0, 0x04, 0x18, 0xAF, 0x79, 0x16, 0x95, 0x50, 0x32, 0xC2, 0x62, 0x36, 0xC6};
+static char ss_buf_51[sizeof(ss_lit_51) + 1U];
+static volatile unsigned char ss_lit_52[] = {0x69, 0xCE, 0xCD, 0x61, 0xED, 0xB1, 0x5C, 0x12, 0xE2, 0x7A, 0x11, 0xD7, 0x74, 0x73, 0xF2, 0x90, 0x2C, 0xC0, 0x90, 0x20, 0xA4};
+static char ss_buf_52[sizeof(ss_lit_52) + 1U];
+static volatile unsigned char ss_lit_53[] = {0x46, 0x14, 0xB9, 0x79, 0x5D, 0xD7, 0x74, 0x30, 0xDF, 0x2E, 0x0E, 0xCA, 0x8D, 0x32, 0xD1, 0x9A, 0x2B, 0xFF, 0x93, 0x55, 0xEE, 0x9C, 0x5D, 0x13, 0xA2, 0x78, 0x07, 0xD5, 0x79, 0x31, 0xFC, 0x7A, 0x3F, 0xC0, 0x8F, 0x3C, 0xCB, 0x84, 0x2B};
+static char ss_buf_53[sizeof(ss_lit_53) + 1U];
+static volatile unsigned char ss_lit_54[] = {0x13, 0xC2, 0x63, 0x3D, 0xC4, 0xC1, 0x24, 0xF0, 0x85, 0x53, 0xA1, 0x94, 0x5D, 0x1B, 0xA7, 0x6E, 0x4C};
+static char ss_buf_54[sizeof(ss_lit_54) + 1U];
+static volatile unsigned char ss_lit_55[] = {0x09, 0xCD, 0x70, 0x2E, 0x86, 0x9E, 0x2D, 0xFB, 0x88, 0x17, 0xC4, 0xB4, 0x5C, 0x1A};
+static char ss_buf_55[sizeof(ss_lit_55) + 1U];
+static volatile unsigned char ss_lit_56[] = {0x4E, 0x3A, 0xED, 0x43};
+static char ss_buf_56[sizeof(ss_lit_56) + 1U];
+static volatile unsigned char ss_lit_57[] = {0x06, 0xC6, 0x71, 0x02, 0xC7, 0x82, 0x2C};
+static char ss_buf_57[sizeof(ss_lit_57) + 1U];
+static volatile unsigned char ss_lit_58[] = {0xE7, 0x54, 0x18, 0xDA, 0x63, 0x3F, 0x97, 0x6D, 0x3A, 0xCA, 0x99, 0x68, 0xF2, 0x9E, 0x36, 0xE4, 0x89, 0x57, 0xB1, 0xFA, 0x61, 0x1C, 0xB1, 0x6F, 0x12, 0x93, 0x7A, 0x3E, 0xD7, 0x65, 0x73, 0xE6, 0x93, 0x29, 0xD1, 0x98, 0x7E};
+static char ss_buf_58[sizeof(ss_lit_58) + 1U];
+static volatile unsigned char ss_lit_59[] = {0x8B, 0x50, 0xFB, 0x8B, 0x47, 0x0B, 0xB0, 0x6C, 0x1B, 0xAD, 0x7A, 0x17, 0xCD};
+static char ss_buf_59[sizeof(ss_lit_59) + 1U];
+static volatile unsigned char ss_lit_60[] = {0x7B, 0xB5, 0xBA, 0x55, 0xF8, 0x94, 0x5D, 0xAA, 0xB3, 0x49, 0xEC, 0xAC, 0x0A, 0x2D, 0xA4, 0x70, 0x18, 0xC7, 0x35};
+static char ss_buf_60[sizeof(ss_lit_60) + 1U];
+static volatile unsigned char ss_lit_61[] = {0x05, 0xCE, 0x71, 0x0A, 0xCD, 0x92, 0x27, 0xF5, 0x9C, 0x52, 0xF5, 0x97, 0x51, 0x09, 0xBF, 0x4F, 0x1E};
+static char ss_buf_61[sizeof(ss_lit_61) + 1U];
+static volatile unsigned char ss_lit_62[] = {0xA4, 0x99, 0x45, 0x19, 0xA4, 0x7A, 0x5A, 0xD2, 0x79, 0x0F, 0xDC, 0x2B, 0x0D, 0xD3, 0x73, 0x23, 0xCA, 0x8A, 0x7C, 0xCB, 0xA6, 0x59, 0xEC, 0xA0, 0x51, 0x56, 0xBF, 0x7D, 0x18, 0xD8, 0x36, 0x21, 0xD0, 0x64, 0x2C, 0xDB, 0x39, 0x62, 0xE9, 0x84, 0x29, 0xE7, 0x8A, 0x1B, 0xE2, 0xB6, 0x5F, 0x1D, 0xFB, 0x6F, 0x12, 0xA6, 0x76, 0x06, 0xDE, 0x72, 0x4F, 0xE4, 0x66, 0x38, 0xCE, 0x80, 0x2D, 0xA9};
+static char ss_buf_62[sizeof(ss_lit_62) + 1U];
+static volatile unsigned char ss_lit_63[] = {0xC6, 0x8F, 0x30, 0xC9, 0x82, 0x53, 0xE6, 0xB2, 0x5F, 0x13, 0xB4, 0x5F, 0x1A, 0xD9, 0x7A, 0x3B};
+static char ss_buf_63[sizeof(ss_lit_63) + 1U];
+static volatile unsigned char ss_lit_64[] = {0x2D, 0x02, 0xC2, 0x90, 0x3D, 0xF5, 0xC1, 0x5B, 0xF0, 0xB4, 0x53, 0x52, 0x84, 0x54, 0x08, 0xAA, 0x73, 0x01, 0xFB, 0x20, 0x2F, 0xC6, 0x67, 0x39, 0xC8, 0xDD, 0x20, 0xF4, 0x81, 0x5F, 0xBD, 0xA9, 0x50, 0x18, 0xB4, 0x44, 0x18, 0xB0, 0x31, 0x21, 0xA8, 0x6F, 0x08, 0xC9, 0x3C};
+static char ss_buf_64[sizeof(ss_lit_64) + 1U];
+static volatile unsigned char ss_lit_65[] = {0xFA, 0xB8, 0x45, 0x1D, 0xF9, 0x73, 0x18, 0xAC, 0x7B, 0x4A, 0xF1, 0x67, 0x31, 0xDE, 0x66, 0x26, 0xE5, 0x94, 0x3F, 0xFC, 0x81, 0x53, 0xD4, 0xA2, 0x57, 0x18, 0xA7, 0x54, 0x13, 0xAC, 0x73};
+static char ss_buf_65[sizeof(ss_lit_65) + 1U];
+static volatile unsigned char ss_lit_66[] = {0xC0, 0x92, 0x3B, 0xF7, 0xDF, 0x55, 0xF2, 0xB2, 0x51, 0x50, 0x97, 0x4D, 0x2F, 0xB0, 0x7C, 0x00, 0x84, 0x62, 0x00, 0xC2, 0x6C, 0x14, 0xD3, 0x97, 0x2B, 0xE7, 0x85, 0x53, 0xFB, 0xB3};
+static char ss_buf_66[sizeof(ss_lit_66) + 1U];
+static volatile unsigned char ss_lit_67[] = {0xE7, 0xB7, 0x46, 0x18, 0xFC, 0x70, 0x17, 0xD1, 0x7E, 0x4D, 0xCE, 0x60, 0x39, 0xC4, 0x67, 0x28, 0xD1, 0xC1, 0x05, 0xF4, 0x9F, 0x5C, 0xE1, 0xB3};
+static char ss_buf_67[sizeof(ss_lit_67) + 1U];
+static volatile unsigned char ss_lit_68[] = {0x4A, 0xE7, 0xA8, 0x64, 0x1C, 0xAB, 0x47, 0x18, 0xB6, 0x67, 0x0A, 0xDD, 0x6E};
+static char ss_buf_68[sizeof(ss_lit_68) + 1U];
+static volatile unsigned char ss_lit_69[] = {0xD3, 0x1E, 0xB7, 0xB1};
+static char ss_buf_69[sizeof(ss_lit_69) + 1U];
+static volatile unsigned char ss_lit_70[] = {0x5F, 0x11, 0xAF, 0x4D, 0x17, 0xA0};
+static char ss_buf_70[sizeof(ss_lit_70) + 1U];
+static volatile unsigned char ss_lit_71[] = {0xA4, 0x99, 0x45, 0x19, 0xA4, 0x7A, 0x5A, 0xD2, 0x79, 0x0F, 0xDC, 0x2B, 0x11, 0xC5, 0x6B, 0x2F, 0xC7, 0x99, 0x7C, 0xCB, 0xA6, 0x59, 0xEC, 0xA0, 0x51, 0x56, 0xBF, 0x7D, 0x18, 0xD8, 0x36, 0x2D, 0xDE, 0x6F, 0x3A, 0xCB, 0x76, 0x70, 0x8C, 0xA2, 0x22, 0xF0, 0x9D, 0x55, 0xA1, 0xBB, 0x50, 0x14, 0xB3, 0x32, 0x38, 0xA2, 0x70, 0x06, 0xDE, 0x72, 0x5B};
+static char ss_buf_71[sizeof(ss_lit_71) + 1U];
+static volatile unsigned char ss_lit_72[] = {0x84, 0x56, 0xE7, 0xBB, 0x1B, 0x11, 0xB6, 0x4E, 0x1D, 0xEC, 0x52, 0x04, 0xAA, 0x6C, 0x00, 0xD8};
+static char ss_buf_72[sizeof(ss_lit_72) + 1U];
+static volatile unsigned char ss_lit_73[] = {0x0A, 0xC8, 0x75, 0x2D, 0x89, 0x83, 0x28, 0xFC, 0x8B, 0x1A, 0xFD, 0xBD, 0x54, 0x17, 0xB0, 0x7D, 0x0C, 0xEE, 0x5D, 0x0D, 0xDB, 0x6B, 0x05};
+static char ss_buf_73[sizeof(ss_lit_73) + 1U];
+static volatile unsigned char ss_lit_74[] = {0xDA, 0x97, 0x38};
+static char ss_buf_74[sizeof(ss_lit_74) + 1U];
+static volatile unsigned char ss_lit_75[] = {0x72, 0xEF, 0x97, 0x27, 0xD6, 0x88, 0x6C, 0xE0, 0x87, 0x41, 0xEE, 0xFD, 0x63, 0x17, 0xA5, 0x7D, 0x11, 0xCF, 0x2E, 0x12, 0xD2, 0x60, 0x2D, 0xC5, 0xD1, 0x2B, 0xC0, 0x84, 0x23, 0xA2, 0xA8, 0x52, 0xE0, 0xB6, 0x4E, 0x02, 0xEB, 0x30, 0x25};
+static char ss_buf_75[sizeof(ss_lit_75) + 1U];
+static volatile unsigned char ss_lit_76[] = {0x94, 0x59, 0xE2};
+static char ss_buf_76[sizeof(ss_lit_76) + 1U];
+static volatile unsigned char ss_lit_77[] = {0xB1, 0xAE, 0x56, 0xE4, 0xA9, 0x49, 0xAD, 0xA7, 0x44, 0x00, 0xAF, 0x3E, 0x24, 0xD6, 0x64, 0x32, 0xD2, 0x8E, 0x6F, 0xB4, 0xBB, 0x2A, 0xFB, 0x95, 0x5C, 0xA9, 0x8C, 0x48, 0xED, 0xAB, 0x09, 0x20, 0xAB, 0x78, 0x09, 0xD6, 0x7B, 0x63};
+static char ss_buf_77[sizeof(ss_lit_77) + 1U];
+static volatile unsigned char ss_lit_78[] = {0xA6, 0x74, 0x19, 0xD9, 0x3D, 0x37, 0xD4, 0x90, 0x3F, 0x8E, 0xA8, 0x30, 0xEC, 0x8E, 0x2F, 0xED};
+static char ss_buf_78[sizeof(ss_lit_78) + 1U];
+static volatile unsigned char ss_lit_79[] = {0xC6, 0x94, 0x39, 0xF9, 0xDD, 0x55, 0xFC, 0xB1, 0x17, 0xE2, 0xB3, 0x45, 0x0C, 0xB4, 0x44, 0x1E, 0xEB, 0x5E, 0x13, 0xD1, 0x64, 0x37, 0xCC, 0x84, 0x34, 0xDA, 0x9B, 0x5D, 0xE4, 0xAC, 0x5C, 0xF6, 0xAF};
+static char ss_buf_79[sizeof(ss_lit_79) + 1U];
+static volatile unsigned char ss_lit_80[] = {0xC8, 0xB2, 0x06, 0xD6, 0xDB};
+static char ss_buf_80[sizeof(ss_lit_80) + 1U];
+static volatile unsigned char ss_lit_81[] = {0xE5, 0x98, 0x2D, 0xE3, 0x8E, 0x17, 0xFC, 0xB2, 0x5A, 0x51, 0xBB, 0x49, 0x1A, 0xB6, 0x6D, 0x02, 0xB5, 0x25, 0x27, 0xC5, 0x66, 0x22, 0xD9, 0x96, 0x39, 0xAD};
+static char ss_buf_81[sizeof(ss_lit_81) + 1U];
+static volatile unsigned char ss_lit_82[] = {0x2D, 0x15, 0xEA, 0xBD, 0x21, 0xF5, 0x98, 0x56, 0xBE, 0xB4, 0x5D, 0x12, 0xF8, 0x43, 0x12, 0xA2, 0x6F, 0x15, 0xA5, 0x7D, 0x4C, 0xEF, 0x6E, 0x2E, 0xDB, 0x81, 0x29, 0xE1, 0xD4, 0x11, 0xC4};
+static char ss_buf_82[sizeof(ss_lit_82) + 1U];
+static volatile unsigned char ss_lit_83[] = {0xEF, 0xAF, 0x5E, 0x10, 0xE5, 0x78, 0x0F, 0xD9, 0x76, 0x74, 0xE0, 0x95, 0x25, 0xC5, 0x9B, 0x27};
+static char ss_buf_83[sizeof(ss_lit_83) + 1U];
+static volatile unsigned char ss_lit_84[] = {0xEE, 0xB7, 0x58, 0x26, 0xBB, 0x79, 0x11, 0xD0, 0x41, 0x2C, 0xD9, 0x62, 0x3E};
+static char ss_buf_84[sizeof(ss_lit_84) + 1U];
+static volatile unsigned char ss_lit_85[] = {0x6A, 0x08};
+static char ss_buf_85[sizeof(ss_lit_85) + 1U];
+static volatile unsigned char ss_lit_86[] = {0x05, 0xCD};
+static char ss_buf_86[sizeof(ss_lit_86) + 1U];
+static volatile unsigned char ss_lit_87[] = {0x45, 0x19, 0xA4, 0x7A, 0x5B, 0xD2, 0x79, 0x0F, 0xDC, 0x2A, 0x2C, 0xC2, 0x67, 0x26, 0xC1, 0x8E, 0x33, 0xBE};
+static char ss_buf_87[sizeof(ss_lit_87) + 1U];
+static volatile unsigned char ss_lit_88[] = {0x1F, 0xDA, 0x73, 0x4F, 0xD2, 0x6A, 0x2A, 0xC2, 0x73, 0x24, 0xC5, 0x81, 0x69, 0xE2, 0x8F, 0x55, 0xE1, 0xB3, 0x53, 0x0D, 0xFD};
+static char ss_buf_88[sizeof(ss_lit_88) + 1U];
+static volatile unsigned char ss_lit_89[] = {0x44, 0xF5, 0xB4, 0x0D, 0x0F, 0xA3, 0x46, 0x05, 0xA6, 0x6F, 0x12, 0x81};
+static char ss_buf_89[sizeof(ss_lit_89) + 1U];
+static volatile unsigned char ss_lit_90[] = {0xF9, 0xBD, 0x40, 0x1E, 0xF7, 0x4E, 0x1D, 0xAB, 0x78, 0x46, 0xAB, 0x65, 0x13, 0xC1, 0x63, 0x34, 0x85};
+static char ss_buf_90[sizeof(ss_lit_90) + 1U];
+static volatile unsigned char ss_lit_91[] = {0xC7, 0x97, 0x26, 0xF8, 0xDC, 0x50, 0xF7, 0xB1, 0x5E, 0xAD, 0x88, 0x4D, 0x0D, 0xAD, 0x43, 0x0F};
+static char ss_buf_91[sizeof(ss_lit_91) + 1U];
+static volatile unsigned char ss_lit_92[] = {0x21, 0xF5, 0x98, 0x56, 0xBE, 0xB6, 0x55, 0x13, 0xB0, 0x0F, 0x29, 0xB7, 0x7C, 0x05, 0xAB, 0x5D, 0x11, 0xCD, 0x65, 0x2A, 0xEC, 0x9E, 0x29, 0xF8, 0x8A, 0x56, 0xE6};
+static char ss_buf_92[sizeof(ss_lit_92) + 1U];
+static volatile unsigned char ss_lit_93[] = {0xB5, 0x6A, 0x0B, 0xB0, 0x79, 0x0B, 0xCB, 0x5C, 0x0A, 0xD9, 0x60, 0x2F, 0xCC};
+static char ss_buf_93[sizeof(ss_lit_93) + 1U];
+static volatile unsigned char ss_lit_94[] = {0x60, 0xB8, 0xA7, 0x5E, 0xEF, 0xA1, 0x50, 0x55, 0xB8, 0x7C, 0x19, 0xA7, 0x35, 0x37, 0xD5, 0x74, 0x05, 0xC8, 0x67, 0x77};
+static char ss_buf_94[sizeof(ss_lit_94) + 1U];
+static volatile unsigned char ss_lit_95[] = {0xD9, 0x13, 0xCF, 0x91, 0x5D, 0xE1, 0xAC, 0x42, 0x52, 0xAA, 0x41, 0x07, 0xA4, 0x23, 0x35, 0xDB, 0x68, 0x31, 0xC7, 0xA1, 0x3D, 0xF9, 0x91, 0x5E, 0xD0, 0xB2, 0x5D, 0xEC, 0xBE, 0x4A, 0x0A, 0xFC};
+static char ss_buf_95[sizeof(ss_lit_95) + 1U];
+static volatile unsigned char ss_lit_96[] = {0x5D, 0xE6, 0xA9, 0x65, 0xEC, 0xA8, 0x50, 0x1F, 0x88, 0x6E, 0x04, 0xD7};
+static char ss_buf_96[sizeof(ss_lit_96) + 1U];
+static volatile unsigned char ss_lit_97[] = {0x9F, 0x29, 0x16, 0xC9, 0x9C, 0x30, 0xC1, 0xC6, 0x2F, 0xED, 0x88, 0x48, 0xA6, 0x81, 0x58, 0x07, 0xA6, 0x76, 0x15, 0x80};
+static char ss_buf_97[sizeof(ss_lit_97) + 1U];
+static volatile unsigned char ss_lit_98[] = {0xE8, 0xBD, 0x46, 0x36, 0xB0, 0x6A, 0x10, 0xAE, 0x7F, 0x2A, 0xDF, 0x6A, 0x04};
+static char ss_buf_98[sizeof(ss_lit_98) + 1U];
+static volatile unsigned char ss_lit_99[] = {0x15, 0xDE, 0x61, 0x10, 0xD9, 0x6C, 0x3E};
+static char ss_buf_99[sizeof(ss_lit_99) + 1U];
+static volatile unsigned char ss_lit_100[] = {0x14, 0xA6, 0x57, 0x0B, 0xEB, 0x61, 0x06, 0xDE, 0x6D, 0x7C, 0xEE, 0x9A, 0x31, 0xEA, 0x80, 0x7F, 0xF7, 0xAC, 0x4D, 0xC7, 0xA4, 0x46, 0x1A, 0xB8, 0x56, 0x02, 0xAA, 0x60};
+static char ss_buf_100[sizeof(ss_lit_100) + 1U];
+static volatile unsigned char ss_lit_101[] = {0x1B};
+static char ss_buf_101[sizeof(ss_lit_101) + 1U];
+static volatile unsigned char ss_lit_102[] = {0x16, 0xC9, 0x9C, 0x30, 0xC1, 0xC6, 0x2F, 0xED, 0x88, 0x48, 0xA6, 0x81, 0x58, 0x07, 0xA6, 0x76, 0x15, 0x80};
+static char ss_buf_102[sizeof(ss_lit_102) + 1U];
+static volatile unsigned char ss_lit_103[] = {0xA6};
+static char ss_buf_103[sizeof(ss_lit_103) + 1U];
+static volatile unsigned char ss_lit_104[] = {0x8A};
+static char ss_buf_104[sizeof(ss_lit_104) + 1U];
+static volatile unsigned char ss_lit_105[] = {0xA9, 0x86, 0x4E, 0x0C, 0xB1, 0x71, 0x45, 0xDF, 0x6C, 0x38, 0xD7, 0xD6, 0x1C, 0xFE, 0x9C, 0x5A, 0xFA, 0x96, 0x07, 0xC9, 0xB5, 0x49, 0xF4, 0xAA, 0x0A, 0x02, 0xA9, 0x7F, 0x0C, 0x9B, 0x41, 0x35, 0xDB, 0x9F, 0x37, 0xE9, 0xCC, 0x09, 0xB3, 0xAF, 0x57, 0xE7, 0x96, 0x48, 0xAC, 0xA0, 0x47, 0x01, 0xAE, 0x3D, 0x23, 0xD7, 0x65, 0x3D, 0xD1, 0x8F, 0x6E};
+static char ss_buf_105[sizeof(ss_lit_105) + 1U];
+static volatile unsigned char ss_lit_106[] = {0xDE, 0x76, 0xD5, 0x88, 0x5D, 0xF3, 0xBE, 0x07, 0xEE, 0xAA, 0x4B, 0x09, 0xE7, 0x52, 0x07, 0xD5, 0x7D, 0x24, 0x8A, 0xB6, 0x3E, 0xFC, 0x81, 0x21, 0xB5, 0x8F, 0x5C, 0xE8, 0x87, 0x06, 0xD0, 0xB8, 0x54, 0x06, 0xA7, 0x75, 0x57, 0xFC, 0x46, 0x11, 0x9B, 0xB2};
+static char ss_buf_106[sizeof(ss_lit_106) + 1U];
+static volatile unsigned char ss_lit_107[] = {0x33, 0x2D, 0xF2, 0x6D, 0x00, 0xDC, 0x65, 0x62, 0xCB, 0x91, 0x24, 0xF4, 0xC2, 0x75, 0xFC, 0xB8, 0x40, 0x0F, 0xED, 0x53, 0x13, 0xA3, 0x6A, 0x04, 0x90, 0x64, 0x03, 0xC5, 0x62, 0x61, 0xFB, 0x85, 0x39, 0xFD, 0x80, 0x50, 0xAA, 0x90, 0x7D, 0x34, 0xFE, 0x6A};
+static char ss_buf_107[sizeof(ss_lit_107) + 1U];
+static const char *ss_dec(int id) {
+    switch (id) {
+        case 0: return ss_decode(ss_lit_0, (unsigned int) sizeof(ss_lit_0), 0x3CU, ss_buf_0);
+        case 1: return ss_decode(ss_lit_1, (unsigned int) sizeof(ss_lit_1), 0x8DU, ss_buf_1);
+        case 2: return ss_decode(ss_lit_2, (unsigned int) sizeof(ss_lit_2), 0xB2U, ss_buf_2);
+        case 3: return ss_decode(ss_lit_3, (unsigned int) sizeof(ss_lit_3), 0xC1U, ss_buf_3);
+        case 4: return ss_decode(ss_lit_4, (unsigned int) sizeof(ss_lit_4), 0xE6U, ss_buf_4);
+        case 5: return ss_decode(ss_lit_5, (unsigned int) sizeof(ss_lit_5), 0x34U, ss_buf_5);
+        case 6: return ss_decode(ss_lit_6, (unsigned int) sizeof(ss_lit_6), 0x64U, ss_buf_6);
+        case 7: return ss_decode(ss_lit_7, (unsigned int) sizeof(ss_lit_7), 0x3FU, ss_buf_7);
+        case 8: return ss_decode(ss_lit_8, (unsigned int) sizeof(ss_lit_8), 0xFEU, ss_buf_8);
+        case 9: return ss_decode(ss_lit_9, (unsigned int) sizeof(ss_lit_9), 0x4FU, ss_buf_9);
+        case 10: return ss_decode(ss_lit_10, (unsigned int) sizeof(ss_lit_10), 0x66U, ss_buf_10);
+        case 11: return ss_decode(ss_lit_11, (unsigned int) sizeof(ss_lit_11), 0x99U, ss_buf_11);
+        case 12: return ss_decode(ss_lit_12, (unsigned int) sizeof(ss_lit_12), 0x19U, ss_buf_12);
+        case 13: return ss_decode(ss_lit_13, (unsigned int) sizeof(ss_lit_13), 0x49U, ss_buf_13);
+        case 14: return ss_decode(ss_lit_14, (unsigned int) sizeof(ss_lit_14), 0x6EU, ss_buf_14);
+        case 15: return ss_decode(ss_lit_15, (unsigned int) sizeof(ss_lit_15), 0x7DU, ss_buf_15);
+        case 16: return ss_decode(ss_lit_16, (unsigned int) sizeof(ss_lit_16), 0xC0U, ss_buf_16);
+        case 17: return ss_decode(ss_lit_17, (unsigned int) sizeof(ss_lit_17), 0xE8U, ss_buf_17);
+        case 18: return ss_decode(ss_lit_18, (unsigned int) sizeof(ss_lit_18), 0x02U, ss_buf_18);
+        case 19: return ss_decode(ss_lit_19, (unsigned int) sizeof(ss_lit_19), 0x3DU, ss_buf_19);
+        case 20: return ss_decode(ss_lit_20, (unsigned int) sizeof(ss_lit_20), 0x8EU, ss_buf_20);
+        case 21: return ss_decode(ss_lit_21, (unsigned int) sizeof(ss_lit_21), 0x66U, ss_buf_21);
+        case 22: return ss_decode(ss_lit_22, (unsigned int) sizeof(ss_lit_22), 0x17U, ss_buf_22);
+        case 23: return ss_decode(ss_lit_23, (unsigned int) sizeof(ss_lit_23), 0x34U, ss_buf_23);
+        case 24: return ss_decode(ss_lit_24, (unsigned int) sizeof(ss_lit_24), 0x01U, ss_buf_24);
+        case 25: return ss_decode(ss_lit_25, (unsigned int) sizeof(ss_lit_25), 0xEFU, ss_buf_25);
+        case 26: return ss_decode(ss_lit_26, (unsigned int) sizeof(ss_lit_26), 0x56U, ss_buf_26);
+        case 27: return ss_decode(ss_lit_27, (unsigned int) sizeof(ss_lit_27), 0x39U, ss_buf_27);
+        case 28: return ss_decode(ss_lit_28, (unsigned int) sizeof(ss_lit_28), 0xABU, ss_buf_28);
+        case 29: return ss_decode(ss_lit_29, (unsigned int) sizeof(ss_lit_29), 0x83U, ss_buf_29);
+        case 30: return ss_decode(ss_lit_30, (unsigned int) sizeof(ss_lit_30), 0x00U, ss_buf_30);
+        case 31: return ss_decode(ss_lit_31, (unsigned int) sizeof(ss_lit_31), 0xCDU, ss_buf_31);
+        case 32: return ss_decode(ss_lit_32, (unsigned int) sizeof(ss_lit_32), 0x8CU, ss_buf_32);
+        case 33: return ss_decode(ss_lit_33, (unsigned int) sizeof(ss_lit_33), 0x7AU, ss_buf_33);
+        case 34: return ss_decode(ss_lit_34, (unsigned int) sizeof(ss_lit_34), 0x3CU, ss_buf_34);
+        case 35: return ss_decode(ss_lit_35, (unsigned int) sizeof(ss_lit_35), 0x11U, ss_buf_35);
+        case 36: return ss_decode(ss_lit_36, (unsigned int) sizeof(ss_lit_36), 0xC8U, ss_buf_36);
+        case 37: return ss_decode(ss_lit_37, (unsigned int) sizeof(ss_lit_37), 0xABU, ss_buf_37);
+        case 38: return ss_decode(ss_lit_38, (unsigned int) sizeof(ss_lit_38), 0x6AU, ss_buf_38);
+        case 39: return ss_decode(ss_lit_39, (unsigned int) sizeof(ss_lit_39), 0x21U, ss_buf_39);
+        case 40: return ss_decode(ss_lit_40, (unsigned int) sizeof(ss_lit_40), 0xEBU, ss_buf_40);
+        case 41: return ss_decode(ss_lit_41, (unsigned int) sizeof(ss_lit_41), 0x10U, ss_buf_41);
+        case 42: return ss_decode(ss_lit_42, (unsigned int) sizeof(ss_lit_42), 0xDDU, ss_buf_42);
+        case 43: return ss_decode(ss_lit_43, (unsigned int) sizeof(ss_lit_43), 0x39U, ss_buf_43);
+        case 44: return ss_decode(ss_lit_44, (unsigned int) sizeof(ss_lit_44), 0x32U, ss_buf_44);
+        case 45: return ss_decode(ss_lit_45, (unsigned int) sizeof(ss_lit_45), 0x8EU, ss_buf_45);
+        case 46: return ss_decode(ss_lit_46, (unsigned int) sizeof(ss_lit_46), 0xDFU, ss_buf_46);
+        case 47: return ss_decode(ss_lit_47, (unsigned int) sizeof(ss_lit_47), 0x96U, ss_buf_47);
+        case 48: return ss_decode(ss_lit_48, (unsigned int) sizeof(ss_lit_48), 0xF2U, ss_buf_48);
+        case 49: return ss_decode(ss_lit_49, (unsigned int) sizeof(ss_lit_49), 0xEBU, ss_buf_49);
+        case 50: return ss_decode(ss_lit_50, (unsigned int) sizeof(ss_lit_50), 0x47U, ss_buf_50);
+        case 51: return ss_decode(ss_lit_51, (unsigned int) sizeof(ss_lit_51), 0x40U, ss_buf_51);
+        case 52: return ss_decode(ss_lit_52, (unsigned int) sizeof(ss_lit_52), 0x9CU, ss_buf_52);
+        case 53: return ss_decode(ss_lit_53, (unsigned int) sizeof(ss_lit_53), 0x87U, ss_buf_53);
+        case 54: return ss_decode(ss_lit_54, (unsigned int) sizeof(ss_lit_54), 0xBAU, ss_buf_54);
+        case 55: return ss_decode(ss_lit_55, (unsigned int) sizeof(ss_lit_55), 0xBEU, ss_buf_55);
+        case 56: return ss_decode(ss_lit_56, (unsigned int) sizeof(ss_lit_56), 0x75U, ss_buf_56);
+        case 57: return ss_decode(ss_lit_57, (unsigned int) sizeof(ss_lit_57), 0xBBU, ss_buf_57);
+        case 58: return ss_decode(ss_lit_58, (unsigned int) sizeof(ss_lit_58), 0x2AU, ss_buf_58);
+        case 59: return ss_decode(ss_lit_59, (unsigned int) sizeof(ss_lit_59), 0x47U, ss_buf_59);
+        case 60: return ss_decode(ss_lit_60, (unsigned int) sizeof(ss_lit_60), 0xAEU, ss_buf_60);
+        case 61: return ss_decode(ss_lit_61, (unsigned int) sizeof(ss_lit_61), 0xBDU, ss_buf_61);
+        case 62: return ss_decode(ss_lit_62, (unsigned int) sizeof(ss_lit_62), 0xE7U, ss_buf_62);
+        case 63: return ss_decode(ss_lit_63, (unsigned int) sizeof(ss_lit_63), 0xFCU, ss_buf_63);
+        case 64: return ss_decode(ss_lit_64, (unsigned int) sizeof(ss_lit_64), 0x60U, ss_buf_64);
+        case 65: return ss_decode(ss_lit_65, (unsigned int) sizeof(ss_lit_65), 0xEBU, ss_buf_65);
+        case 66: return ss_decode(ss_lit_66, (unsigned int) sizeof(ss_lit_66), 0x05U, ss_buf_66);
+        case 67: return ss_decode(ss_lit_67, (unsigned int) sizeof(ss_lit_67), 0xE8U, ss_buf_67);
+        case 68: return ss_decode(ss_lit_68, (unsigned int) sizeof(ss_lit_68), 0x94U, ss_buf_68);
+        case 69: return ss_decode(ss_lit_69, (unsigned int) sizeof(ss_lit_69), 0x56U, ss_buf_69);
+        case 70: return ss_decode(ss_lit_70, (unsigned int) sizeof(ss_lit_70), 0x91U, ss_buf_70);
+        case 71: return ss_decode(ss_lit_71, (unsigned int) sizeof(ss_lit_71), 0xE7U, ss_buf_71);
+        case 72: return ss_decode(ss_lit_72, (unsigned int) sizeof(ss_lit_72), 0x49U, ss_buf_72);
+        case 73: return ss_decode(ss_lit_73, (unsigned int) sizeof(ss_lit_73), 0xBBU, ss_buf_73);
+        case 74: return ss_decode(ss_lit_74, (unsigned int) sizeof(ss_lit_74), 0x04U, ss_buf_74);
+        case 75: return ss_decode(ss_lit_75, (unsigned int) sizeof(ss_lit_75), 0xB5U, ss_buf_75);
+        case 76: return ss_decode(ss_lit_76, (unsigned int) sizeof(ss_lit_76), 0x4EU, ss_buf_76);
+        case 77: return ss_decode(ss_lit_77, (unsigned int) sizeof(ss_lit_77), 0xF4U, ss_buf_77);
+        case 78: return ss_decode(ss_lit_78, (unsigned int) sizeof(ss_lit_78), 0x27U, ss_buf_78);
+        case 79: return ss_decode(ss_lit_79, (unsigned int) sizeof(ss_lit_79), 0x07U, ss_buf_79);
+        case 80: return ss_decode(ss_lit_80, (unsigned int) sizeof(ss_lit_80), 0xF8U, ss_buf_80);
+        case 81: return ss_decode(ss_lit_81, (unsigned int) sizeof(ss_lit_81), 0x04U, ss_buf_81);
+        case 82: return ss_decode(ss_lit_82, (unsigned int) sizeof(ss_lit_82), 0x60U, ss_buf_82);
+        case 83: return ss_decode(ss_lit_83, (unsigned int) sizeof(ss_lit_83), 0xE0U, ss_buf_83);
+        case 84: return ss_decode(ss_lit_84, (unsigned int) sizeof(ss_lit_84), 0xE4U, ss_buf_84);
+        case 85: return ss_decode(ss_lit_85, (unsigned int) sizeof(ss_lit_85), 0x90U, ss_buf_85);
+        case 86: return ss_decode(ss_lit_86, (unsigned int) sizeof(ss_lit_86), 0xB5U, ss_buf_86);
+        case 87: return ss_decode(ss_lit_87, (unsigned int) sizeof(ss_lit_87), 0x8AU, ss_buf_87);
+        case 88: return ss_decode(ss_lit_88, (unsigned int) sizeof(ss_lit_88), 0xD0U, ss_buf_88);
+        case 89: return ss_decode(ss_lit_89, (unsigned int) sizeof(ss_lit_89), 0x92U, ss_buf_89);
+        case 90: return ss_decode(ss_lit_90, (unsigned int) sizeof(ss_lit_90), 0xEEU, ss_buf_90);
+        case 91: return ss_decode(ss_lit_91, (unsigned int) sizeof(ss_lit_91), 0x08U, ss_buf_91);
+        case 92: return ss_decode(ss_lit_92, (unsigned int) sizeof(ss_lit_92), 0xA6U, ss_buf_92);
+        case 93: return ss_decode(ss_lit_93, (unsigned int) sizeof(ss_lit_93), 0x31U, ss_buf_93);
+        case 94: return ss_decode(ss_lit_94, (unsigned int) sizeof(ss_lit_94), 0xA3U, ss_buf_94);
+        case 95: return ss_decode(ss_lit_95, (unsigned int) sizeof(ss_lit_95), 0x4CU, ss_buf_95);
+        case 96: return ss_decode(ss_lit_96, (unsigned int) sizeof(ss_lit_96), 0x95U, ss_buf_96);
+        case 97: return ss_decode(ss_lit_97, (unsigned int) sizeof(ss_lit_97), 0x12U, ss_buf_97);
+        case 98: return ss_decode(ss_lit_98, (unsigned int) sizeof(ss_lit_98), 0xEAU, ss_buf_98);
+        case 99: return ss_decode(ss_lit_99, (unsigned int) sizeof(ss_lit_99), 0xCDU, ss_buf_99);
+        case 100: return ss_decode(ss_lit_100, (unsigned int) sizeof(ss_lit_100), 0xD9U, ss_buf_100);
+        case 101: return ss_decode(ss_lit_101, (unsigned int) sizeof(ss_lit_101), 0xD5U, ss_buf_101);
+        case 102: return ss_decode(ss_lit_102, (unsigned int) sizeof(ss_lit_102), 0xB5U, ss_buf_102);
+        case 103: return ss_decode(ss_lit_103, (unsigned int) sizeof(ss_lit_103), 0x1FU, ss_buf_103);
+        case 104: return ss_decode(ss_lit_104, (unsigned int) sizeof(ss_lit_104), 0x44U, ss_buf_104);
+        case 105: return ss_decode(ss_lit_105, (unsigned int) sizeof(ss_lit_105), 0xDCU, ss_buf_105);
+        case 106: return ss_decode(ss_lit_106, (unsigned int) sizeof(ss_lit_106), 0x51U, ss_buf_106);
+        case 107: return ss_decode(ss_lit_107, (unsigned int) sizeof(ss_lit_107), 0x76U, ss_buf_107);
+        default: return ss_decode(ss_lit_0, 0U, 0U, ss_buf_0);
+    }
+}
 
 static int sushuo_env_truthy(const char *name) {
     const char *value = getenv(name);
     if (value == NULL || value[0] == '\0') {
         return 0;
     }
-    return strcmp(value, "0") != 0
-            && strcmp(value, "false") != 0
-            && strcmp(value, "FALSE") != 0
-            && strcmp(value, "off") != 0
-            && strcmp(value, "OFF") != 0;
+    return strcmp(value, SS(0)) != 0
+            && strcmp(value, SS(1)) != 0
+            && strcmp(value, SS(2)) != 0
+            && strcmp(value, SS(3)) != 0
+            && strcmp(value, SS(4)) != 0;
 }
 
 static int sushuo_native_debugger_present(void) {
-    if (sushuo_env_truthy("SUSHUO_NATIVE_DEBUGGER_PRESENT")) {
+    if (sushuo_env_truthy(SS(5))) {
         return 1;
     }
 #ifdef _WIN32
@@ -53,8 +407,7 @@ enum {
     ENCODED_MARKER = 0x53535632,
     PACKED_MARKER = 0x53535033,
     RESOURCE_MARKER = 0x53535234,
-    RESOURCE_MAGIC = 0x6D4F9B17,
-    RESOURCE_VERSION = 3,
+    RESOURCE_VERSION = 4,
     RESOURCE_SALT = 0x6A09E667,
     SEAL_SALT = 0x4B455931,
     RESOURCE_HEADER_BYTES = 28,
@@ -337,6 +690,29 @@ static jlong constant_mask64_native(jint kind, const char *owner, const char *me
     return (jlong) mix64(state);
 }
 
+static jint resource_format(jint resource_hash, jint total_length) {
+    uint32_t value = 0x52464D34U ^ (uint32_t) resource_hash ^ (uint32_t) total_length;
+    value ^= native_secret_word(0);
+    value ^= rotl32(native_secret_word(1), 9U);
+    value ^= rotl32(native_secret_word(2), (uint32_t) total_length & 31U);
+    return mix32((jint) (value ^ native_secret_word(3)));
+}
+
+static jint resource_header_mask(jint resource_hash, jint total_length, jint slot) {
+    uint32_t value = 0x56485244U ^ (uint32_t) resource_hash;
+    value ^= rotl32((uint32_t) total_length * 0x45D9F3BU, ((uint32_t) slot + 5U) & 31U);
+    value ^= native_secret_word(slot & 3);
+    value ^= rotl32(native_secret_word((slot + 1) & 3), ((uint32_t) slot * 7U + 3U) & 31U);
+    value ^= (uint32_t) slot * 0x9E3779B9U;
+    value = rotl32(value + 0x7F4A7C15U, 9U);
+    value ^= value >> 16U;
+    value *= 0x85EBCA6BU;
+    value ^= value >> 13U;
+    value *= 0xC2B2AE35U;
+    value ^= value >> 16U;
+    return (jint) (value == 0U ? 0x13579BDFU : value);
+}
+
 static uint8_t resource_mask(jint key, jint nonce, jint resource_hash, jint code_length,
                              jint payload_length, jint index) {
     uint32_t state = (uint32_t) key ^ (uint32_t) nonce ^ (uint32_t) resource_hash ^ RESOURCE_SALT;
@@ -364,7 +740,7 @@ static jint read_be32(const jbyte *bytes, jint offset) {
 }
 
 static void throw_illegal_state(JNIEnv *env, const char *message) {
-    jclass cls = (*env)->FindClass(env, "java/lang/IllegalStateException");
+    jclass cls = (*env)->FindClass(env, SS(6));
     if (cls != NULL) {
         (*env)->ThrowNew(env, cls, message);
     }
@@ -373,7 +749,7 @@ static void throw_illegal_state(JNIEnv *env, const char *message) {
 static int sushuo_native_security_check(JNIEnv *env) {
     if (sushuo_native_debugger_present()) {
         if (env != NULL) {
-            throw_illegal_state(env, "x");
+            throw_illegal_state(env, SS(7));
         }
         return 0;
     }
@@ -381,13 +757,13 @@ static int sushuo_native_security_check(JNIEnv *env) {
 }
 
 static jbyteArray load_resource_bytes(JNIEnv *env, jstring resource_name) {
-    jclass bridge = (*env)->FindClass(env, (const char *) sushuo_bridge_name);
-    jclass class_cls = (*env)->FindClass(env, "java/lang/Class");
+    jclass bridge = (*env)->FindClass(env, sushuo_bridge_name_plain());
+    jclass class_cls = (*env)->FindClass(env, SS(8));
     if (bridge == NULL || class_cls == NULL) {
         return NULL;
     }
-    jmethodID get_resource = (*env)->GetMethodID(env, class_cls, "getResourceAsStream",
-            "(Ljava/lang/String;)Ljava/io/InputStream;");
+    jmethodID get_resource = (*env)->GetMethodID(env, class_cls, SS(9),
+            SS(10));
     if (get_resource == NULL) {
         return NULL;
     }
@@ -396,17 +772,17 @@ static jbyteArray load_resource_bytes(JNIEnv *env, jstring resource_name) {
         return NULL;
     }
     if (stream == NULL) {
-        throw_illegal_state(env, "x");
+        throw_illegal_state(env, SS(7));
         return NULL;
     }
 
-    jclass input_cls = (*env)->FindClass(env, "java/io/InputStream");
-    jmethodID read_mid = input_cls == NULL ? NULL : (*env)->GetMethodID(env, input_cls, "read", "([B)I");
-    jmethodID close_mid = input_cls == NULL ? NULL : (*env)->GetMethodID(env, input_cls, "close", "()V");
-    jclass baos_cls = (*env)->FindClass(env, "java/io/ByteArrayOutputStream");
-    jmethodID baos_ctor = baos_cls == NULL ? NULL : (*env)->GetMethodID(env, baos_cls, "<init>", "()V");
-    jmethodID write_mid = baos_cls == NULL ? NULL : (*env)->GetMethodID(env, baos_cls, "write", "([BII)V");
-    jmethodID to_byte_array_mid = baos_cls == NULL ? NULL : (*env)->GetMethodID(env, baos_cls, "toByteArray", "()[B");
+    jclass input_cls = (*env)->FindClass(env, SS(11));
+    jmethodID read_mid = input_cls == NULL ? NULL : (*env)->GetMethodID(env, input_cls, SS(12), SS(13));
+    jmethodID close_mid = input_cls == NULL ? NULL : (*env)->GetMethodID(env, input_cls, SS(14), SS(15));
+    jclass baos_cls = (*env)->FindClass(env, SS(16));
+    jmethodID baos_ctor = baos_cls == NULL ? NULL : (*env)->GetMethodID(env, baos_cls, SS(17), SS(15));
+    jmethodID write_mid = baos_cls == NULL ? NULL : (*env)->GetMethodID(env, baos_cls, SS(18), SS(19));
+    jmethodID to_byte_array_mid = baos_cls == NULL ? NULL : (*env)->GetMethodID(env, baos_cls, SS(20), SS(21));
     if (read_mid == NULL || close_mid == NULL || baos_ctor == NULL || write_mid == NULL || to_byte_array_mid == NULL) {
         return NULL;
     }
@@ -455,9 +831,9 @@ static jbyte packed_byte_at(JNIEnv *env, vm_code_reader *reader, jint offset) {
     if (reader->resource_packed) {
         if (offset < 0 || offset >= reader->resource_code_bytes_len
                 || RESOURCE_HEADER_BYTES + offset >= reader->resource_bytes_len) {
-            jclass cls = (*env)->FindClass(env, "java/lang/ArrayIndexOutOfBoundsException");
+            jclass cls = (*env)->FindClass(env, SS(22));
             if (cls != NULL) {
-                (*env)->ThrowNew(env, cls, "x");
+                (*env)->ThrowNew(env, cls, SS(7));
             }
             return 0;
         }
@@ -477,9 +853,9 @@ static jbyte packed_byte_at(JNIEnv *env, vm_code_reader *reader, jint offset) {
 
 static jint decode_packed_code(JNIEnv *env, vm_code_reader *reader, jint index) {
     if (index < 0 || index >= reader->length || reader->chunk_bytes <= 0) {
-        jclass cls = (*env)->FindClass(env, "java/lang/ArrayIndexOutOfBoundsException");
+        jclass cls = (*env)->FindClass(env, SS(22));
         if (cls != NULL) {
-            (*env)->ThrowNew(env, cls, "x");
+            (*env)->ThrowNew(env, cls, SS(7));
         }
         return 0;
     }
@@ -508,7 +884,7 @@ static int ensure_value_type(JNIEnv *env, jobject value, const char *class_name)
         return 0;
     }
     if (value == NULL) {
-        throw_illegal_state(env, "x");
+        throw_illegal_state(env, SS(7));
         return 0;
     }
     jclass cls = (*env)->FindClass(env, class_name);
@@ -516,21 +892,21 @@ static int ensure_value_type(JNIEnv *env, jobject value, const char *class_name)
         return 0;
     }
     if (!(*env)->IsInstanceOf(env, value, cls)) {
-        throw_illegal_state(env, "x");
+        throw_illegal_state(env, SS(7));
         return 0;
     }
     return 1;
 }
 
 static jint as_int(JNIEnv *env, jobject value) {
-    if (!ensure_value_type(env, value, "java/lang/Number")) {
+    if (!ensure_value_type(env, value, SS(23))) {
         return 0;
     }
-    jclass cls = (*env)->FindClass(env, "java/lang/Number");
+    jclass cls = (*env)->FindClass(env, SS(23));
     if (cls == NULL || (*env)->ExceptionCheck(env)) {
         return 0;
     }
-    jmethodID mid = (*env)->GetMethodID(env, cls, "intValue", "()I");
+    jmethodID mid = (*env)->GetMethodID(env, cls, SS(24), SS(25));
     if (mid == NULL || (*env)->ExceptionCheck(env)) {
         return 0;
     }
@@ -539,14 +915,14 @@ static jint as_int(JNIEnv *env, jobject value) {
 }
 
 static jlong as_long(JNIEnv *env, jobject value) {
-    if (!ensure_value_type(env, value, "java/lang/Number")) {
+    if (!ensure_value_type(env, value, SS(23))) {
         return 0;
     }
-    jclass cls = (*env)->FindClass(env, "java/lang/Number");
+    jclass cls = (*env)->FindClass(env, SS(23));
     if (cls == NULL || (*env)->ExceptionCheck(env)) {
         return 0;
     }
-    jmethodID mid = (*env)->GetMethodID(env, cls, "longValue", "()J");
+    jmethodID mid = (*env)->GetMethodID(env, cls, SS(26), SS(27));
     if (mid == NULL || (*env)->ExceptionCheck(env)) {
         return 0;
     }
@@ -555,14 +931,14 @@ static jlong as_long(JNIEnv *env, jobject value) {
 }
 
 static jfloat as_float(JNIEnv *env, jobject value) {
-    if (!ensure_value_type(env, value, "java/lang/Number")) {
+    if (!ensure_value_type(env, value, SS(23))) {
         return 0.0f;
     }
-    jclass cls = (*env)->FindClass(env, "java/lang/Number");
+    jclass cls = (*env)->FindClass(env, SS(23));
     if (cls == NULL || (*env)->ExceptionCheck(env)) {
         return 0.0f;
     }
-    jmethodID mid = (*env)->GetMethodID(env, cls, "floatValue", "()F");
+    jmethodID mid = (*env)->GetMethodID(env, cls, SS(28), SS(29));
     if (mid == NULL || (*env)->ExceptionCheck(env)) {
         return 0.0f;
     }
@@ -571,14 +947,14 @@ static jfloat as_float(JNIEnv *env, jobject value) {
 }
 
 static jdouble as_double(JNIEnv *env, jobject value) {
-    if (!ensure_value_type(env, value, "java/lang/Number")) {
+    if (!ensure_value_type(env, value, SS(23))) {
         return 0.0;
     }
-    jclass cls = (*env)->FindClass(env, "java/lang/Number");
+    jclass cls = (*env)->FindClass(env, SS(23));
     if (cls == NULL || (*env)->ExceptionCheck(env)) {
         return 0.0;
     }
-    jmethodID mid = (*env)->GetMethodID(env, cls, "doubleValue", "()D");
+    jmethodID mid = (*env)->GetMethodID(env, cls, SS(30), SS(31));
     if (mid == NULL || (*env)->ExceptionCheck(env)) {
         return 0.0;
     }
@@ -587,14 +963,14 @@ static jdouble as_double(JNIEnv *env, jobject value) {
 }
 
 static jboolean as_boolean(JNIEnv *env, jobject value) {
-    if (!ensure_value_type(env, value, "java/lang/Boolean")) {
+    if (!ensure_value_type(env, value, SS(32))) {
         return JNI_FALSE;
     }
-    jclass cls = (*env)->FindClass(env, "java/lang/Boolean");
+    jclass cls = (*env)->FindClass(env, SS(32));
     if (cls == NULL || (*env)->ExceptionCheck(env)) {
         return JNI_FALSE;
     }
-    jmethodID mid = (*env)->GetMethodID(env, cls, "booleanValue", "()Z");
+    jmethodID mid = (*env)->GetMethodID(env, cls, SS(33), SS(34));
     if (mid == NULL || (*env)->ExceptionCheck(env)) {
         return JNI_FALSE;
     }
@@ -603,14 +979,14 @@ static jboolean as_boolean(JNIEnv *env, jobject value) {
 }
 
 static jchar as_char(JNIEnv *env, jobject value) {
-    if (!ensure_value_type(env, value, "java/lang/Character")) {
+    if (!ensure_value_type(env, value, SS(35))) {
         return 0;
     }
-    jclass cls = (*env)->FindClass(env, "java/lang/Character");
+    jclass cls = (*env)->FindClass(env, SS(35));
     if (cls == NULL || (*env)->ExceptionCheck(env)) {
         return 0;
     }
-    jmethodID mid = (*env)->GetMethodID(env, cls, "charValue", "()C");
+    jmethodID mid = (*env)->GetMethodID(env, cls, SS(36), SS(37));
     if (mid == NULL || (*env)->ExceptionCheck(env)) {
         return 0;
     }
@@ -619,50 +995,50 @@ static jchar as_char(JNIEnv *env, jobject value) {
 }
 
 static jobject box_int(JNIEnv *env, jint value) {
-    jclass cls = (*env)->FindClass(env, "java/lang/Integer");
-    jmethodID mid = (*env)->GetStaticMethodID(env, cls, "valueOf", "(I)Ljava/lang/Integer;");
+    jclass cls = (*env)->FindClass(env, SS(38));
+    jmethodID mid = (*env)->GetStaticMethodID(env, cls, SS(39), SS(40));
     return (*env)->CallStaticObjectMethod(env, cls, mid, value);
 }
 
 static jobject box_boolean(JNIEnv *env, jint value) {
-    jclass cls = (*env)->FindClass(env, "java/lang/Boolean");
-    jmethodID mid = (*env)->GetStaticMethodID(env, cls, "valueOf", "(Z)Ljava/lang/Boolean;");
+    jclass cls = (*env)->FindClass(env, SS(32));
+    jmethodID mid = (*env)->GetStaticMethodID(env, cls, SS(39), SS(41));
     return (*env)->CallStaticObjectMethod(env, cls, mid, value != 0 ? JNI_TRUE : JNI_FALSE);
 }
 
 static jobject box_byte(JNIEnv *env, jint value) {
-    jclass cls = (*env)->FindClass(env, "java/lang/Byte");
-    jmethodID mid = (*env)->GetStaticMethodID(env, cls, "valueOf", "(B)Ljava/lang/Byte;");
+    jclass cls = (*env)->FindClass(env, SS(42));
+    jmethodID mid = (*env)->GetStaticMethodID(env, cls, SS(39), SS(43));
     return (*env)->CallStaticObjectMethod(env, cls, mid, (jbyte) value);
 }
 
 static jobject box_short(JNIEnv *env, jint value) {
-    jclass cls = (*env)->FindClass(env, "java/lang/Short");
-    jmethodID mid = (*env)->GetStaticMethodID(env, cls, "valueOf", "(S)Ljava/lang/Short;");
+    jclass cls = (*env)->FindClass(env, SS(44));
+    jmethodID mid = (*env)->GetStaticMethodID(env, cls, SS(39), SS(45));
     return (*env)->CallStaticObjectMethod(env, cls, mid, (jshort) value);
 }
 
 static jobject box_char(JNIEnv *env, jint value) {
-    jclass cls = (*env)->FindClass(env, "java/lang/Character");
-    jmethodID mid = (*env)->GetStaticMethodID(env, cls, "valueOf", "(C)Ljava/lang/Character;");
+    jclass cls = (*env)->FindClass(env, SS(35));
+    jmethodID mid = (*env)->GetStaticMethodID(env, cls, SS(39), SS(46));
     return (*env)->CallStaticObjectMethod(env, cls, mid, (jchar) value);
 }
 
 static jobject box_long(JNIEnv *env, jlong value) {
-    jclass cls = (*env)->FindClass(env, "java/lang/Long");
-    jmethodID mid = (*env)->GetStaticMethodID(env, cls, "valueOf", "(J)Ljava/lang/Long;");
+    jclass cls = (*env)->FindClass(env, SS(47));
+    jmethodID mid = (*env)->GetStaticMethodID(env, cls, SS(39), SS(48));
     return (*env)->CallStaticObjectMethod(env, cls, mid, value);
 }
 
 static jobject box_float(JNIEnv *env, jfloat value) {
-    jclass cls = (*env)->FindClass(env, "java/lang/Float");
-    jmethodID mid = (*env)->GetStaticMethodID(env, cls, "valueOf", "(F)Ljava/lang/Float;");
+    jclass cls = (*env)->FindClass(env, SS(49));
+    jmethodID mid = (*env)->GetStaticMethodID(env, cls, SS(39), SS(50));
     return (*env)->CallStaticObjectMethod(env, cls, mid, value);
 }
 
 static jobject box_double(JNIEnv *env, jdouble value) {
-    jclass cls = (*env)->FindClass(env, "java/lang/Double");
-    jmethodID mid = (*env)->GetStaticMethodID(env, cls, "valueOf", "(D)Ljava/lang/Double;");
+    jclass cls = (*env)->FindClass(env, SS(51));
+    jmethodID mid = (*env)->GetStaticMethodID(env, cls, SS(39), SS(52));
     return (*env)->CallStaticObjectMethod(env, cls, mid, value);
 }
 
@@ -681,42 +1057,42 @@ static jint compare_double(jdouble left, jdouble right, jint nan_value) {
 }
 
 static void throw_unsupported(JNIEnv *env) {
-    jclass cls = (*env)->FindClass(env, "java/lang/UnsupportedOperationException");
+    jclass cls = (*env)->FindClass(env, SS(53));
     if (cls != NULL) {
-        (*env)->ThrowNew(env, cls, "x");
+        (*env)->ThrowNew(env, cls, SS(7));
     }
 }
 
 static jclass primitive_class(JNIEnv *env, char kind) {
     const char *class_name = NULL;
-    const char *field_sig = "Ljava/lang/Class;";
+    const char *field_sig = SS(54);
     switch (kind) {
         case 'V':
-            class_name = "java/lang/Void";
+            class_name = SS(55);
             break;
         case 'Z':
-            class_name = "java/lang/Boolean";
+            class_name = SS(32);
             break;
         case 'C':
-            class_name = "java/lang/Character";
+            class_name = SS(35);
             break;
         case 'B':
-            class_name = "java/lang/Byte";
+            class_name = SS(42);
             break;
         case 'S':
-            class_name = "java/lang/Short";
+            class_name = SS(44);
             break;
         case 'I':
-            class_name = "java/lang/Integer";
+            class_name = SS(38);
             break;
         case 'J':
-            class_name = "java/lang/Long";
+            class_name = SS(47);
             break;
         case 'F':
-            class_name = "java/lang/Float";
+            class_name = SS(49);
             break;
         case 'D':
-            class_name = "java/lang/Double";
+            class_name = SS(51);
             break;
         default:
             return NULL;
@@ -725,7 +1101,7 @@ static jclass primitive_class(JNIEnv *env, char kind) {
     if (wrapper == NULL) {
         return NULL;
     }
-    jfieldID type_field = (*env)->GetStaticFieldID(env, wrapper, "TYPE", field_sig);
+    jfieldID type_field = (*env)->GetStaticFieldID(env, wrapper, SS(56), field_sig);
     if (type_field == NULL) {
         return NULL;
     }
@@ -764,11 +1140,11 @@ static char *internal_to_binary(const char *internal_name) {
 }
 
 static jclass class_for_name(JNIEnv *env, const char *name) {
-    jclass cls_class = (*env)->FindClass(env, "java/lang/Class");
+    jclass cls_class = (*env)->FindClass(env, SS(8));
     if (cls_class == NULL) {
         return NULL;
     }
-    jmethodID for_name = (*env)->GetStaticMethodID(env, cls_class, "forName", "(Ljava/lang/String;)Ljava/lang/Class;");
+    jmethodID for_name = (*env)->GetStaticMethodID(env, cls_class, SS(57), SS(58));
     if (for_name == NULL) {
         return NULL;
     }
@@ -803,7 +1179,7 @@ static int parameter_count(const char *descriptor) {
 }
 
 static jobjectArray parameter_classes(JNIEnv *env, const char *descriptor, char *kinds, int count) {
-    jclass class_cls = (*env)->FindClass(env, "java/lang/Class");
+    jclass class_cls = (*env)->FindClass(env, SS(8));
     if (class_cls == NULL) {
         return NULL;
     }
@@ -923,17 +1299,17 @@ static jobject coerce_value(JNIEnv *env, char kind, jobject value) {
 
 static jobject find_declared_member(JNIEnv *env, jclass start_class, jobject name_string,
                                     jobjectArray parameter_types, jint method) {
-    jclass class_cls = (*env)->FindClass(env, "java/lang/Class");
-    jmethodID get_superclass = (*env)->GetMethodID(env, class_cls, "getSuperclass", "()Ljava/lang/Class;");
+    jclass class_cls = (*env)->FindClass(env, SS(8));
+    jmethodID get_superclass = (*env)->GetMethodID(env, class_cls, SS(59), SS(60));
     jmethodID getter = method
-            ? (*env)->GetMethodID(env, class_cls, "getDeclaredMethod",
-                    "(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;")
-            : (*env)->GetMethodID(env, class_cls, "getDeclaredField",
-                    "(Ljava/lang/String;)Ljava/lang/reflect/Field;");
+            ? (*env)->GetMethodID(env, class_cls, SS(61),
+                    SS(62))
+            : (*env)->GetMethodID(env, class_cls, SS(63),
+                    SS(64));
     jobject cursor = start_class;
     jobject member = NULL;
-    jclass no_such_method = (*env)->FindClass(env, "java/lang/NoSuchMethodException");
-    jclass no_such_field = (*env)->FindClass(env, "java/lang/NoSuchFieldException");
+    jclass no_such_method = (*env)->FindClass(env, SS(65));
+    jclass no_such_field = (*env)->FindClass(env, SS(66));
 
     while (cursor != NULL && !(*env)->ExceptionCheck(env)) {
         if (method) {
@@ -994,11 +1370,11 @@ static jobject invoke_reflect(JNIEnv *env, jobjectArray constants, jint owner_in
     if (parameter_types != NULL && owner_class != NULL && !(*env)->ExceptionCheck(env)) {
         jobject method = find_declared_member(env, owner_class, name_string, parameter_types, JNI_TRUE);
         if (method != NULL && !(*env)->ExceptionCheck(env)) {
-            jclass method_cls = (*env)->FindClass(env, "java/lang/reflect/Method");
-            jmethodID set_accessible = (*env)->GetMethodID(env, method_cls, "setAccessible", "(Z)V");
-            jmethodID invoke = (*env)->GetMethodID(env, method_cls, "invoke",
-                    "(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;");
-            jobjectArray coerced_args = (*env)->NewObjectArray(env, argc, (*env)->FindClass(env, "java/lang/Object"), NULL);
+            jclass method_cls = (*env)->FindClass(env, SS(67));
+            jmethodID set_accessible = (*env)->GetMethodID(env, method_cls, SS(68), SS(69));
+            jmethodID invoke = (*env)->GetMethodID(env, method_cls, SS(70),
+                    SS(71));
+            jobjectArray coerced_args = (*env)->NewObjectArray(env, argc, (*env)->FindClass(env, SS(72)), NULL);
             for (jint i = 0; i < argc; i++) {
                 jobject arg = (*env)->GetObjectArrayElement(env, call_args, i);
                 jobject coerced = coerce_arg(env, kinds[i], arg);
@@ -1035,21 +1411,21 @@ static jobject access_field(JNIEnv *env, jobjectArray constants, jint owner_inde
     if (owner_class != NULL && !(*env)->ExceptionCheck(env)) {
         jobject field = find_declared_member(env, owner_class, name_string, NULL, JNI_FALSE);
         if (field != NULL && !(*env)->ExceptionCheck(env)) {
-            jclass field_cls = (*env)->FindClass(env, "java/lang/reflect/Field");
-            jmethodID set_accessible = (*env)->GetMethodID(env, field_cls, "setAccessible", "(Z)V");
+            jclass field_cls = (*env)->FindClass(env, SS(73));
+            jmethodID set_accessible = (*env)->GetMethodID(env, field_cls, SS(68), SS(69));
             if (!(*env)->ExceptionCheck(env)) {
                 (*env)->CallVoidMethod(env, field, set_accessible, JNI_TRUE);
             }
             if (write) {
-                jmethodID set = (*env)->GetMethodID(env, field_cls, "set",
-                        "(Ljava/lang/Object;Ljava/lang/Object;)V");
+                jmethodID set = (*env)->GetMethodID(env, field_cls, SS(74),
+                        SS(75));
                 jobject coerced = coerce_value(env, descriptor_utf[0], value);
                 if (!(*env)->ExceptionCheck(env)) {
                     (*env)->CallVoidMethod(env, field, set, target, coerced);
                 }
             } else {
-                jmethodID get = (*env)->GetMethodID(env, field_cls, "get",
-                        "(Ljava/lang/Object;)Ljava/lang/Object;");
+                jmethodID get = (*env)->GetMethodID(env, field_cls, SS(76),
+                        SS(77));
                 jobject raw = NULL;
                 if (!(*env)->ExceptionCheck(env)) {
                     raw = (*env)->CallObjectMethod(env, field, get, target);
@@ -1083,7 +1459,7 @@ static jclass type_from_constant(JNIEnv *env, jobjectArray constants, jint type_
 
 static jint resource_read_i32(JNIEnv *env, vm_code_reader *reader, jint *cursor) {
     if (*cursor < 0 || *cursor + 4 > reader->resource_payload_len) {
-        throw_illegal_state(env, "x");
+        throw_illegal_state(env, SS(7));
         return 0;
     }
     uint32_t value = ((uint32_t) resource_payload_byte_at(reader, *cursor) << 24U)
@@ -1105,7 +1481,7 @@ static jlong resource_read_i64(JNIEnv *env, vm_code_reader *reader, jint *cursor
 
 static jint resource_read_u8(JNIEnv *env, vm_code_reader *reader, jint *cursor) {
     if (*cursor < 0 || *cursor >= reader->resource_payload_len) {
-        throw_illegal_state(env, "x");
+        throw_illegal_state(env, SS(7));
         return 0;
     }
     uint8_t value = resource_payload_byte_at(reader, *cursor);
@@ -1124,13 +1500,13 @@ static jobject new_string_utf8(JNIEnv *env, const jbyte *data, jint length) {
             return NULL;
         }
     }
-    jclass string_cls = (*env)->FindClass(env, "java/lang/String");
-    jclass charset_cls = (*env)->FindClass(env, "java/nio/charset/StandardCharsets");
+    jclass string_cls = (*env)->FindClass(env, SS(78));
+    jclass charset_cls = (*env)->FindClass(env, SS(79));
     if (string_cls == NULL || charset_cls == NULL) {
         return NULL;
     }
-    jfieldID utf8_field = (*env)->GetStaticFieldID(env, charset_cls, "UTF_8", "Ljava/nio/charset/Charset;");
-    jmethodID ctor = (*env)->GetMethodID(env, string_cls, "<init>", "([BLjava/nio/charset/Charset;)V");
+    jfieldID utf8_field = (*env)->GetStaticFieldID(env, charset_cls, SS(80), SS(81));
+    jmethodID ctor = (*env)->GetMethodID(env, string_cls, SS(17), SS(82));
     if (utf8_field == NULL || ctor == NULL) {
         return NULL;
     }
@@ -1185,10 +1561,10 @@ static uint16_t seal_mask(jint token, jint site, jint index) {
 }
 
 static int should_skip_frame(const char *owner, const char *method) {
-    if (strcmp(owner, "java.lang.Thread") == 0) {
+    if (strcmp(owner, SS(83)) == 0) {
         return 1;
     }
-    if (strcmp(method, "getStackTrace") == 0 || strcmp(method, "_v") == 0 || strcmp(method, "_n") == 0) {
+    if (strcmp(method, SS(84)) == 0 || strcmp(method, SS(85)) == 0 || strcmp(method, SS(86)) == 0) {
         return 1;
     }
     if (method[0] == '_' && method[1] == 'v' && method[2] == 'p' && method[3] == '$') {
@@ -1202,10 +1578,10 @@ static int starts_with_utf(const char *value, const char *prefix) {
 }
 
 static int reflective_owner(const char *owner) {
-    return starts_with_utf(owner, "java.lang.reflect.")
-            || starts_with_utf(owner, "jdk.internal.reflect.")
-            || starts_with_utf(owner, "sun.reflect.")
-            || starts_with_utf(owner, "java.lang.invoke.");
+    return starts_with_utf(owner, SS(87))
+            || starts_with_utf(owner, SS(88))
+            || starts_with_utf(owner, SS(89))
+            || starts_with_utf(owner, SS(90));
 }
 
 static int frame_owner_is_reflective(JNIEnv *env, jobjectArray trace, jsize index, jsize count,
@@ -1255,7 +1631,7 @@ static int same_package_context_after_reflection(JNIEnv *env, jobjectArray trace
         }
         int allowed = strncmp(owner, expected_owner, prefix_len) == 0
                 && !reflective_owner(owner)
-                && strcmp(owner, "java.lang.Thread") != 0;
+                && strcmp(owner, SS(83)) != 0;
         (*env)->ReleaseStringUTFChars(env, owner_string, owner);
         if (allowed) {
             return 1;
@@ -1268,15 +1644,15 @@ static jint current_call_binding_match(JNIEnv *env, jint site,
                                        jint expected_owner_hash, jint expected_method_hash,
                                        int require_match,
                                        jint *owner_hash, jint *method_hash) {
-    jclass thread_cls = (*env)->FindClass(env, "java/lang/Thread");
-    jclass ste_cls = (*env)->FindClass(env, "java/lang/StackTraceElement");
+    jclass thread_cls = (*env)->FindClass(env, SS(91));
+    jclass ste_cls = (*env)->FindClass(env, SS(92));
     if (thread_cls == NULL || ste_cls == NULL) {
         return 0;
     }
-    jmethodID current_thread = (*env)->GetStaticMethodID(env, thread_cls, "currentThread", "()Ljava/lang/Thread;");
-    jmethodID get_stack = (*env)->GetMethodID(env, thread_cls, "getStackTrace", "()[Ljava/lang/StackTraceElement;");
-    jmethodID get_class_name = (*env)->GetMethodID(env, ste_cls, "getClassName", "()Ljava/lang/String;");
-    jmethodID get_method_name = (*env)->GetMethodID(env, ste_cls, "getMethodName", "()Ljava/lang/String;");
+    jmethodID current_thread = (*env)->GetStaticMethodID(env, thread_cls, SS(93), SS(94));
+    jmethodID get_stack = (*env)->GetMethodID(env, thread_cls, SS(84), SS(95));
+    jmethodID get_class_name = (*env)->GetMethodID(env, ste_cls, SS(96), SS(97));
+    jmethodID get_method_name = (*env)->GetMethodID(env, ste_cls, SS(98), SS(97));
     if (current_thread == NULL || get_stack == NULL || get_class_name == NULL || get_method_name == NULL) {
         return 0;
     }
@@ -1351,15 +1727,15 @@ static jint current_call_token(JNIEnv *env, jint site) {
 }
 
 static int stack_contains_frame(JNIEnv *env, const char *expected_owner, const char *expected_method) {
-    jclass thread_cls = (*env)->FindClass(env, "java/lang/Thread");
-    jclass ste_cls = (*env)->FindClass(env, "java/lang/StackTraceElement");
+    jclass thread_cls = (*env)->FindClass(env, SS(91));
+    jclass ste_cls = (*env)->FindClass(env, SS(92));
     if (thread_cls == NULL || ste_cls == NULL) {
         return 0;
     }
-    jmethodID current_thread = (*env)->GetStaticMethodID(env, thread_cls, "currentThread", "()Ljava/lang/Thread;");
-    jmethodID get_stack = (*env)->GetMethodID(env, thread_cls, "getStackTrace", "()[Ljava/lang/StackTraceElement;");
-    jmethodID get_class_name = (*env)->GetMethodID(env, ste_cls, "getClassName", "()Ljava/lang/String;");
-    jmethodID get_method_name = (*env)->GetMethodID(env, ste_cls, "getMethodName", "()Ljava/lang/String;");
+    jmethodID current_thread = (*env)->GetStaticMethodID(env, thread_cls, SS(93), SS(94));
+    jmethodID get_stack = (*env)->GetMethodID(env, thread_cls, SS(84), SS(95));
+    jmethodID get_class_name = (*env)->GetMethodID(env, ste_cls, SS(96), SS(97));
+    jmethodID get_method_name = (*env)->GetMethodID(env, ste_cls, SS(98), SS(97));
     if (current_thread == NULL || get_stack == NULL || get_class_name == NULL || get_method_name == NULL) {
         return 0;
     }
@@ -1420,7 +1796,7 @@ static jint *decode_resource_map(JNIEnv *env, vm_code_reader *reader, jint *curs
         return NULL;
     }
     if (map_len < 0 || map_len > 4096 || *cursor + map_len * 4 > reader->resource_payload_len) {
-        throw_illegal_state(env, "x");
+        throw_illegal_state(env, SS(7));
         return NULL;
     }
     jint *encoded = (jint *) malloc((size_t) map_len * sizeof(jint));
@@ -1448,10 +1824,10 @@ static jobjectArray decode_resource_constants(JNIEnv *env, vm_code_reader *reade
         return NULL;
     }
     if (count < 0 || count > 65535) {
-        throw_illegal_state(env, "x");
+        throw_illegal_state(env, SS(7));
         return NULL;
     }
-    jclass object_cls = (*env)->FindClass(env, "java/lang/Object");
+    jclass object_cls = (*env)->FindClass(env, SS(72));
     if (object_cls == NULL) {
         return NULL;
     }
@@ -1501,7 +1877,7 @@ static jobjectArray decode_resource_constants(JNIEnv *env, vm_code_reader *reade
                     return NULL;
                 }
                 if (length < 0 || *cursor + length > reader->resource_payload_len) {
-                    throw_illegal_state(env, "x");
+                    throw_illegal_state(env, SS(7));
                     return NULL;
                 }
                 jbyte *bytes = length == 0 ? NULL : (jbyte *) malloc((size_t) length);
@@ -1517,7 +1893,7 @@ static jobjectArray decode_resource_constants(JNIEnv *env, vm_code_reader *reade
                 break;
             }
             default:
-                throw_illegal_state(env, "x");
+                throw_illegal_state(env, SS(7));
                 return NULL;
         }
         if ((*env)->ExceptionCheck(env)) {
@@ -1534,11 +1910,11 @@ static jobjectArray decode_resource_constants(JNIEnv *env, vm_code_reader *reade
 }
 
 static jstring class_name_string(JNIEnv *env, jclass owner_class) {
-    jclass class_cls = (*env)->FindClass(env, "java/lang/Class");
+    jclass class_cls = (*env)->FindClass(env, SS(8));
     if (class_cls == NULL || owner_class == NULL) {
         return NULL;
     }
-    jmethodID get_name = (*env)->GetMethodID(env, class_cls, "getName", "()Ljava/lang/String;");
+    jmethodID get_name = (*env)->GetMethodID(env, class_cls, SS(99), SS(97));
     if (get_name == NULL) {
         return NULL;
     }
@@ -1674,7 +2050,7 @@ static jobject SUSHUO_CALL sushuo_native_vm(
                 return NULL;
             }
             if (token == 0 || owner_hash != expected_owner_hash || method_hash != expected_method_hash) {
-                throw_illegal_state(env, "x");
+                throw_illegal_state(env, SS(7));
                 return NULL;
             }
             key = key ^ token ^ SEAL_SALT;
@@ -1701,27 +2077,28 @@ static jobject SUSHUO_CALL sushuo_native_vm(
             }
             if (resource_len < RESOURCE_HEADER_BYTES) {
                 (*env)->ReleaseByteArrayElements(env, resource_array, resource_bytes, JNI_ABORT);
-                throw_illegal_state(env, "x");
+                throw_illegal_state(env, SS(7));
                 return NULL;
             }
-            jint magic = read_be32(resource_bytes, 0);
-            jint version = read_be32(resource_bytes, 4);
-            jint nonce = read_be32(resource_bytes, 8);
-            jint key_tag = read_be32(resource_bytes, 12);
-            jint resource_code_len = read_be32(resource_bytes, 16);
-            jint payload_len = read_be32(resource_bytes, 20);
-            jint expected_context_tag = read_be32(resource_bytes, 24);
-            jint resource_key = key_tag ^ resource_hash ^ RESOURCE_MAGIC ^ nonce;
+            jint expected_format = resource_format(resource_hash, resource_len);
+            jint header_format = read_be32(resource_bytes, 0) ^ resource_header_mask(resource_hash, resource_len, 0);
+            jint version = read_be32(resource_bytes, 4) ^ resource_header_mask(resource_hash, resource_len, 1);
+            jint nonce = read_be32(resource_bytes, 8) ^ resource_header_mask(resource_hash, resource_len, 2);
+            jint key_tag = read_be32(resource_bytes, 12) ^ resource_header_mask(resource_hash, resource_len, 3);
+            jint resource_code_len = read_be32(resource_bytes, 16) ^ resource_header_mask(resource_hash, resource_len, 4);
+            jint payload_len = read_be32(resource_bytes, 20) ^ resource_header_mask(resource_hash, resource_len, 5);
+            jint expected_context_tag = read_be32(resource_bytes, 24) ^ resource_header_mask(resource_hash, resource_len, 6);
+            jint resource_key = key_tag ^ resource_hash ^ expected_format ^ nonce;
             jint actual_context_tag = context_tag(key, resource_hash, site, owner_hash, method_hash,
                     (jint) code_len, constant_count, return_kind_value);
             jint code_bytes_len = code_len * 4;
-            if (magic != RESOURCE_MAGIC || version != RESOURCE_VERSION
+            if (header_format != expected_format || version != RESOURCE_VERSION
                     || resource_key != key || resource_code_len != code_len
                     || expected_context_tag != actual_context_tag
                     || payload_len < code_bytes_len
                     || payload_len < 0 || payload_len > resource_len - RESOURCE_HEADER_BYTES) {
                 (*env)->ReleaseByteArrayElements(env, resource_array, resource_bytes, JNI_ABORT);
-                throw_illegal_state(env, "x");
+                throw_illegal_state(env, SS(7));
                 return NULL;
             }
             reader.resource_array = resource_array;
@@ -2081,7 +2458,7 @@ static jobject SUSHUO_CALL sushuo_native_vm(
                 jint name_index = VM_NEXT();
                 jint descriptor_index = VM_NEXT();
                 jint argc = VM_NEXT();
-                jobjectArray call_args = (*env)->NewObjectArray(env, argc, (*env)->FindClass(env, "java/lang/Object"), NULL);
+                jobjectArray call_args = (*env)->NewObjectArray(env, argc, (*env)->FindClass(env, SS(72)), NULL);
                 for (jint i = argc - 1; i >= 0; i--) {
                     (*env)->SetObjectArrayElement(env, call_args, i, stack[--sp]);
                 }
@@ -2140,7 +2517,7 @@ static jobject SUSHUO_CALL sushuo_native_vm(
                 jint descriptor_index = VM_NEXT();
                 jint argc = VM_NEXT();
                 jint invoke_opcode = VM_NEXT();
-                jobjectArray call_args = (*env)->NewObjectArray(env, argc, (*env)->FindClass(env, "java/lang/Object"), NULL);
+                jobjectArray call_args = (*env)->NewObjectArray(env, argc, (*env)->FindClass(env, SS(72)), NULL);
                 for (jint i = argc - 1; i >= 0; i--) {
                     (*env)->SetObjectArrayElement(env, call_args, i, stack[--sp]);
                 }
@@ -2159,9 +2536,9 @@ static jobject SUSHUO_CALL sushuo_native_vm(
                     jclass type = type_from_constant(env, constants, type_index);
                     if (type != NULL && !(*env)->ExceptionCheck(env)) {
                         if (!(*env)->IsInstanceOf(env, stack[sp - 1], type)) {
-                            jclass cast_cls = (*env)->FindClass(env, "java/lang/ClassCastException");
+                            jclass cast_cls = (*env)->FindClass(env, SS(100));
                             if (cast_cls != NULL) {
-                                (*env)->ThrowNew(env, cast_cls, "x");
+                                (*env)->ThrowNew(env, cast_cls, SS(7));
                             }
                         }
                     }
@@ -2337,6 +2714,61 @@ static jobject SUSHUO_CALL sushuo_native_vm(
     return result;
 }
 
+static jint sushuo_native_vm_program_id(JNIEnv *env, jobjectArray program) {
+    if (program == NULL) {
+        return 0;
+    }
+    jsize program_len = (*env)->GetArrayLength(env, program);
+    if ((*env)->ExceptionCheck(env) || program_len < 7) {
+        return 0;
+    }
+    jobject first = (*env)->GetObjectArrayElement(env, program, 0);
+    jint marker = first != NULL ? as_int(env, first) : 0;
+    if ((*env)->ExceptionCheck(env)) {
+        return 0;
+    }
+    jint index = marker == RESOURCE_MARKER ? 8 : marker == ENCODED_MARKER ? 6 : -1;
+    if (index < 0 || index >= program_len) {
+        return 0;
+    }
+    jobject id_obj = (*env)->GetObjectArrayElement(env, program, index);
+    jint id = id_obj != NULL ? as_int(env, id_obj) : 0;
+    return (*env)->ExceptionCheck(env) ? 0 : id;
+}
+
+static jint sushuo_native_vm_call_token(JNIEnv *env, jobjectArray program, jobjectArray args) {
+    jsize arg_len = args == NULL ? 0 : (*env)->GetArrayLength(env, args);
+    if ((*env)->ExceptionCheck(env)) {
+        return 0;
+    }
+    uint32_t value = 0x56584D31U;
+    value ^= (uint32_t) sushuo_native_vm_program_id(env, program) * 0x45D9F3BU;
+    if ((*env)->ExceptionCheck(env)) {
+        return 0;
+    }
+    value ^= rotl32((uint32_t) ((jint) arg_len * 0x27D4EB2D), 7U);
+    return mix32((jint) value);
+}
+
+static jobject SUSHUO_CALL sushuo_native_vm_x(
+        JNIEnv *env, jclass ignored, jobject program, jobject args, jint token) {
+    if (program == NULL || args == NULL) {
+        throw_illegal_state(env, SS(7));
+        return NULL;
+    }
+    jobjectArray program_array = (jobjectArray) program;
+    jobjectArray args_array = (jobjectArray) args;
+    jint expected = sushuo_native_vm_call_token(env, program_array, args_array);
+    if ((*env)->ExceptionCheck(env)) {
+        return NULL;
+    }
+    if (expected != token) {
+        throw_illegal_state(env, SS(7));
+        return NULL;
+    }
+    return sushuo_native_vm(env, ignored, program_array, args_array);
+}
+
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     (void) reserved;
     JNIEnv *env = NULL;
@@ -2346,7 +2778,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     if (!sushuo_native_security_check(env)) {
         return JNI_ERR;
     }
-    jclass bridge = (*env)->FindClass(env, (const char *) sushuo_bridge_name);
+    jclass bridge = (*env)->FindClass(env, sushuo_bridge_name_plain());
     if (bridge == NULL) {
         return JNI_ERR;
     }
@@ -2359,9 +2791,9 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     jstring native_method_string = NULL;
     jstring native_key_i_string = NULL;
     jstring native_key_l_string = NULL;
-    jfieldID native_method_field = (*env)->GetStaticFieldID(env, bridge, "a", "Ljava/lang/String;");
-    jfieldID native_key_i_field = (*env)->GetStaticFieldID(env, bridge, "b", "Ljava/lang/String;");
-    jfieldID native_key_l_field = (*env)->GetStaticFieldID(env, bridge, "c", "Ljava/lang/String;");
+    jfieldID native_method_field = (*env)->GetStaticFieldID(env, bridge, SS(101), SS(102));
+    jfieldID native_key_i_field = (*env)->GetStaticFieldID(env, bridge, SS(103), SS(102));
+    jfieldID native_key_l_field = (*env)->GetStaticFieldID(env, bridge, SS(104), SS(102));
     if (native_method_field != NULL) {
         native_method_string = (jstring) (*env)->GetStaticObjectField(env, bridge, native_method_field);
         if (native_method_string != NULL) {
@@ -2407,9 +2839,9 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return JNI_ERR;
     }
     JNINativeMethod methods[] = {
-            {(char *) native_method_name, "([Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;", (void *) sushuo_native_vm},
-            {(char *) native_key_i_name, "(ILjava/lang/Class;Ljava/lang/String;III)I", (void *) sushuo_native_key_i},
-            {(char *) native_key_l_name, "(ILjava/lang/Class;Ljava/lang/String;JII)J", (void *) sushuo_native_key_l}
+            {(char *) native_method_name, (char *) SS(105), (void *) sushuo_native_vm_x},
+            {(char *) native_key_i_name, (char *) SS(106), (void *) sushuo_native_key_i},
+            {(char *) native_key_l_name, (char *) SS(107), (void *) sushuo_native_key_l}
     };
     jint registered = (*env)->RegisterNatives(env, bridge, methods, 3);
     if (native_method_string != NULL && native_method_chars != NULL) {

@@ -5,6 +5,9 @@ import java.util.Map;
 import java.util.TreeMap;
 
 final class WatermarkResources {
+    private static final String[] BUCKETS = {"assets", "cfg", "lib", "modules", "packs", "res"};
+    private static final String[] EXTENSIONS = {".bin", ".dat", ".res", ".pak", ".idx", ".cfg"};
+
     private WatermarkResources() {
     }
 
@@ -43,37 +46,47 @@ final class WatermarkResources {
     private static String resourceName(ObfuscationOptions options, NamingPlan namingPlan) {
         int a = mix((int) options.seed() ^ namingPlan.runtimeClassName().hashCode() ^ 0x574D4B31);
         int b = mix((int) (options.seed() >>> 32) ^ namingPlan.nativeResourceName().hashCode() ^ 0x574D4B32);
-        return namingPlan.namePrefix() + "meta/W"
-                + Integer.toUnsignedString(a, 36)
-                + Integer.toUnsignedString(b, 36)
-                + ".bin";
+        int c = mix(a ^ b ^ namingPlan.namePrefix().hashCode() ^ 0x574D4B33);
+        String bucket = BUCKETS[Math.floorMod(a, BUCKETS.length)];
+        String sub = Integer.toUnsignedString(mix(b ^ 0x5A17C0DE), 36);
+        String leaf = "p"
+                + Integer.toUnsignedString(c, 36)
+                + Integer.toUnsignedString(mix(c ^ a), 36);
+        String ext = EXTENSIONS[Math.floorMod(b ^ c, EXTENSIONS.length)];
+        return namingPlan.namePrefix() + bucket + "/" + sub + "/" + leaf + ext;
     }
 
     private static byte[] payload(ObfuscationOptions options, NamingPlan namingPlan, String name, int entryHash) {
-        String text = "SSWM2\n"
-                + "mode=" + options.mode().name().toLowerCase(java.util.Locale.ROOT) + '\n'
-                + "runtime=" + namingPlan.runtimeClassName().replace('/', '.') + '\n'
-                + "resource=" + name + '\n'
-                + "entryHash=" + Integer.toUnsignedString(entryHash, 16) + '\n'
-                + "seedTag=" + Integer.toUnsignedString(mix((int) options.seed()), 16) + '\n';
+        String text = "v=" + Integer.toUnsignedString(mix(name.hashCode() ^ 2), 36) + '\n'
+                + "m=" + Integer.toUnsignedString(mix(options.mode().ordinal() ^ 0x19A7), 36) + '\n'
+                + "r=" + Integer.toUnsignedString(mix(namingPlan.runtimeClassName().hashCode()), 36) + '\n'
+                + "n=" + Integer.toUnsignedString(mix(name.hashCode()), 36) + '\n'
+                + "e=" + Integer.toUnsignedString(entryHash, 36) + '\n'
+                + "s=" + Integer.toUnsignedString(mix((int) options.seed()), 36) + '\n';
         byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
-        int key = mix((int) options.seed() ^ name.hashCode() ^ namingPlan.runtimeClassName().hashCode());
+        int key = mix((int) options.seed() ^ name.hashCode() ^ namingPlan.runtimeClassName().hashCode() ^ entryHash);
         byte[] encoded = bytes.clone();
         for (int i = 0; i < encoded.length; i++) {
             key = stream(key, i);
             encoded[i] = (byte) (encoded[i] ^ (key >>> 24));
         }
-        byte[] out = new byte[8 + encoded.length];
-        out[0] = 'S';
-        out[1] = 'S';
-        out[2] = 'W';
-        out[3] = 'M';
-        out[4] = (byte) (entryHash >>> 24);
-        out[5] = (byte) (entryHash >>> 16);
-        out[6] = (byte) (entryHash >>> 8);
-        out[7] = (byte) entryHash;
-        System.arraycopy(encoded, 0, out, 8, encoded.length);
+        int headerKey = mix(key ^ entryHash ^ name.hashCode() ^ 0x6D657461);
+        int maskedHash = entryHash ^ headerKey;
+        int maskedLength = encoded.length ^ Integer.rotateLeft(headerKey, 7);
+        int nonce = mix(headerKey ^ encoded.length ^ 0x574D4B34);
+        byte[] out = new byte[12 + encoded.length];
+        writeInt(out, 0, maskedHash);
+        writeInt(out, 4, maskedLength);
+        writeInt(out, 8, nonce);
+        System.arraycopy(encoded, 0, out, 12, encoded.length);
         return out;
+    }
+
+    private static void writeInt(byte[] out, int offset, int value) {
+        out[offset] = (byte) (value >>> 24);
+        out[offset + 1] = (byte) (value >>> 16);
+        out[offset + 2] = (byte) (value >>> 8);
+        out[offset + 3] = (byte) value;
     }
 
     private static int entryHash(Map<String, byte[]>... maps) {

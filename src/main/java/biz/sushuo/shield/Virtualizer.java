@@ -11,6 +11,7 @@ import org.objectweb.asm.tree.FrameNode;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.IntInsnNode;
+import org.objectweb.asm.tree.InvokeDynamicInsnNode;
 import org.objectweb.asm.tree.JumpInsnNode;
 import org.objectweb.asm.tree.LabelNode;
 import org.objectweb.asm.tree.LdcInsnNode;
@@ -97,18 +98,30 @@ final class Virtualizer implements Opcodes {
             if (nativeOnly && vmPayloadResources != null) {
                 program = program.withResourceName(vmPayloadResources.add(program, classNode.name, method.name, method.desc));
             }
+            VirtualProgramEmitter.FactoryShape callShape = VirtualProgramEmitter.selectFactoryShape(
+                    seed, classNode.name, method.name, method.desc, program, 0);
+            boolean indirectFactory = VirtualProgramEmitter.useFactoryIndirection(
+                    seed, classNode.name, method.name, method.desc, program);
+            VirtualProgramEmitter.FactoryShape materializerShape = indirectFactory
+                    ? VirtualProgramEmitter.selectFactoryShape(seed, classNode.name, method.name, method.desc, program, 1)
+                    : callShape;
             String dataMethodName = nextProgramMethodName(programNameRandom, usedProgramMethodKeys,
-                    classNode.name, method.name, method.desc, program.id());
-            extraMethods.add(VirtualProgramEmitter.createProgramMethod(
-                    classNode.name, dataMethodName, program, nativeOnly, runtimeClassName, guardProgramAccess));
-            replaceBody(method, runtimeClassName, classNode.name, dataMethodName, program);
+                    classNode.name, method.name, method.desc, program.id(), callShape.desc());
+            String materializerName = indirectFactory
+                    ? nextProgramMethodName(programNameRandom, usedProgramMethodKeys,
+                    classNode.name, method.name, method.desc, program.id(), materializerShape.desc())
+                    : dataMethodName;
+            extraMethods.addAll(VirtualProgramEmitter.createProgramMethods(
+                    classNode.name, dataMethodName, materializerName, program, nativeOnly, runtimeClassName,
+                    guardProgramAccess, callShape, materializerShape, indirectFactory));
+            replaceBody(method, runtimeClassName, classNode.name, dataMethodName, program, callShape, seed);
             stats.addVirtualizedMethod(program.code().length);
         }
         classNode.methods.addAll(extraMethods);
     }
 
     private static String nextProgramMethodName(Random random, Set<String> usedMethodKeys,
-                                                String owner, String name, String desc, int id) {
+                                                String owner, String name, String desc, int id, String methodDesc) {
         int attempt = 0;
         while (true) {
             int a = outerMix((int) random.nextLong()
@@ -124,11 +137,28 @@ final class Virtualizer implements Opcodes {
             String candidate = "_"
                     + Integer.toUnsignedString(a, 36)
                     + Integer.toUnsignedString(b, 36);
-            if (usedMethodKeys.add(candidate + "()Ljava/lang/Object;")) {
+            if (usedMethodKeys.add(candidate + methodDesc)) {
                 return candidate;
             }
             attempt++;
         }
+    }
+
+    static int programDataToken(String owner, String dataMethodName, VirtualProgram program) {
+        int value = 0x5044544B ^ owner.hashCode();
+        value ^= Integer.rotateLeft(dataMethodName.hashCode(), 7);
+        value ^= Integer.rotateLeft(program.owner().hashCode(), 11);
+        value ^= Integer.rotateLeft(program.hostMethod().hashCode(), 17);
+        value ^= program.id() * 0x45D9F3B;
+        value ^= program.key() * 0x27D4EB2D;
+        return outerMix(value);
+    }
+
+    static int vmCallToken(VirtualProgram program, int localSlots) {
+        int value = 0x56584D31;
+        value ^= program.id() * 0x45D9F3B;
+        value ^= Integer.rotateLeft(localSlots * 0x27D4EB2D, 7);
+        return outerMix(value);
     }
 
     private static int outerMix(int value) {
@@ -283,44 +313,147 @@ final class Virtualizer implements Opcodes {
             String runtimeClassName,
             String owner,
             String dataMethodName,
-            VirtualProgram program
+            VirtualProgram program,
+            VirtualProgramEmitter.FactoryShape factoryShape,
+            long seed
     ) {
         Type methodType = Type.getMethodType(method.desc);
         Type[] arguments = methodType.getArgumentTypes();
+        int originalMaxLocals = method.maxLocals;
+        StubShape stubShape = stubShape(seed, owner, method, program);
         InsnList body = new InsnList();
 
-        body.add(new MethodInsnNode(INVOKESTATIC, owner, dataMethodName, "()Ljava/lang/Object;", false));
-        body.add(new TypeInsnNode(CHECKCAST, "[Ljava/lang/Object;"));
-        pushInt(body, method.maxLocals);
-        body.add(new TypeInsnNode(ANEWARRAY, "java/lang/Object"));
-
-        int local = 0;
-        if ((method.access & ACC_STATIC) == 0) {
-            body.add(new InsnNode(DUP));
-            pushInt(body, local);
-            body.add(new VarInsnNode(ALOAD, local));
-            body.add(new InsnNode(AASTORE));
-            local++;
-        }
-        for (int i = 0; i < arguments.length; i++) {
-            Type argument = arguments[i];
-            body.add(new InsnNode(DUP));
-            pushInt(body, local);
-            addLoad(body, argument, local);
-            box(body, argument);
-            body.add(new InsnNode(AASTORE));
-            local += argument.getSize();
+        int nextTempLocal = originalMaxLocals;
+        if (stubShape.argsBeforeProgram()) {
+            int argsLocal = nextTempLocal++;
+            createLocalsArray(body, originalMaxLocals, stubShape.argsArrayKind());
+            body.add(new VarInsnNode(ASTORE, argsLocal));
+            fillLocalsArray(body, argsLocal, method, owner, arguments, stubShape.fillSeed());
+            emitProgramFactoryCall(body, owner, dataMethodName, program, factoryShape);
+            body.add(new VarInsnNode(ALOAD, argsLocal));
+        } else {
+            int programLocal = nextTempLocal++;
+            emitProgramFactoryCall(body, owner, dataMethodName, program, factoryShape);
+            body.add(new VarInsnNode(ASTORE, programLocal));
+            int argsLocal = nextTempLocal++;
+            createLocalsArray(body, originalMaxLocals, stubShape.argsArrayKind());
+            body.add(new VarInsnNode(ASTORE, argsLocal));
+            fillLocalsArray(body, argsLocal, method, owner, arguments, stubShape.fillSeed());
+            body.add(new VarInsnNode(ALOAD, programLocal));
+            body.add(new VarInsnNode(ALOAD, argsLocal));
         }
 
-        body.add(new MethodInsnNode(INVOKESTATIC, runtimeClassName, "_v",
-                "([Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;", false));
+        pushInt(body, vmCallToken(program, originalMaxLocals));
+        emitVmEntryInvokeDynamic(body, runtimeClassName, owner, method, program, seed);
         addReturn(body, methodType.getReturnType());
 
         method.instructions = body;
         method.tryCatchBlocks.clear();
         method.localVariables = null;
-        method.maxLocals = Math.max(method.maxLocals, local);
-        method.maxStack = 6;
+        method.maxLocals = Math.max(originalMaxLocals, nextTempLocal);
+        method.maxStack = 12;
+    }
+
+    private static void emitProgramFactoryCall(InsnList body, String owner, String dataMethodName,
+                                               VirtualProgram program,
+                                               VirtualProgramEmitter.FactoryShape factoryShape) {
+        VirtualProgramEmitter.emitFactoryInvocation(body, factoryShape,
+                programDataToken(owner, dataMethodName, program));
+        body.add(new MethodInsnNode(INVOKESTATIC, owner, dataMethodName, factoryShape.desc(), false));
+    }
+
+    private static void emitVmEntryInvokeDynamic(InsnList body, String runtimeClassName, String owner,
+                                                 MethodNode method, VirtualProgram program, long seed) {
+        String descriptor = "(Ljava/lang/Object;Ljava/lang/Object;I)Ljava/lang/Object;";
+        int siteSeed = outerMix((int) seed ^ (int) (seed >>> 32)
+                ^ program.owner().hashCode()
+                ^ Integer.rotateLeft(method.name.hashCode(), 5)
+                ^ Integer.rotateLeft(method.desc.hashCode(), 11)
+                ^ program.id() * 0x45D9F3B
+                ^ program.key() * 0x27D4EB2D
+                ^ owner.hashCode());
+        int siteSalt = outerMix(siteSeed
+                ^ Integer.rotateLeft(program.owner().length() * 0x9E3779B9, 7)
+                ^ Integer.rotateLeft(descriptor.hashCode(), 13)
+                ^ 0x5652494E);
+        String siteName = "_"
+                + Integer.toUnsignedString(outerMix(siteSeed ^ 0x56524931), 36)
+                + Integer.toUnsignedString(outerMix(siteSalt ^ 0x56524932), 36);
+        int key = vmEntryIndyKey(siteSeed, siteSalt, program.owner(), siteName, descriptor);
+        int check = vmEntryIndyCheck(key, siteSeed, siteSalt);
+        body.add(new InvokeDynamicInsnNode(siteName, descriptor,
+                new Handle(H_INVOKESTATIC, runtimeClassName, "_rv",
+                        "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;"
+                                + "Ljava/lang/invoke/MethodHandle;III)Ljava/lang/invoke/CallSite;",
+                        false),
+                new Handle(H_INVOKESTATIC, runtimeClassName, "_vx", descriptor, false),
+                siteSeed,
+                siteSalt,
+                check));
+    }
+
+    private static int vmEntryIndyKey(int seed, int salt, String owner, String name, String descriptor) {
+        int value = outerMix(seed ^ owner.hashCode() ^ 0x56524931);
+        value ^= Integer.rotateLeft(name.hashCode(), 7);
+        value ^= Integer.rotateLeft(descriptor.hashCode(), 13);
+        value = outerMix(value ^ salt ^ owner.length() * 0x45D9F3B);
+        value ^= Integer.rotateLeft(descriptor.length() * 0x27D4EB2D, 9);
+        return outerMix(value ^ 0x56524932);
+    }
+
+    private static int vmEntryIndyCheck(int key, int seed, int salt) {
+        return outerMix(key ^ seed ^ Integer.rotateLeft(salt, 11) ^ 0x56524348);
+    }
+
+    private static StubShape stubShape(long seed, String owner, MethodNode method, VirtualProgram program) {
+        int value = outerMix((int) seed ^ (int) (seed >>> 32)
+                ^ owner.hashCode()
+                ^ Integer.rotateLeft(method.name.hashCode(), 7)
+                ^ Integer.rotateLeft(method.desc.hashCode(), 13)
+                ^ program.id() * 0x45D9F3B);
+        int order = Math.floorMod(value, 3);
+        int argsArrayKind = Math.floorMod(Integer.rotateRight(value, 9), 2);
+        int fillSeed = outerMix(value ^ Integer.rotateLeft(program.key(), 11) ^ 0x41524753);
+        return new StubShape(order == 1, argsArrayKind, fillSeed);
+    }
+
+    private static void createLocalsArray(InsnList body, int localSlots, int arrayKind) {
+        switch (arrayKind) {
+            case 0 -> {
+                pushInt(body, localSlots);
+                body.add(new TypeInsnNode(ANEWARRAY, "java/lang/Object"));
+            }
+            case 1 -> {
+                body.add(new LdcInsnNode(Type.getType("Ljava/lang/Object;")));
+                pushInt(body, localSlots);
+                body.add(new MethodInsnNode(INVOKESTATIC, "java/lang/reflect/Array",
+                        "newInstance", "(Ljava/lang/Class;I)Ljava/lang/Object;", false));
+                body.add(new TypeInsnNode(CHECKCAST, "[Ljava/lang/Object;"));
+            }
+            default -> throw new IllegalArgumentException("Bad args array shape " + arrayKind);
+        }
+    }
+
+    private static void fillLocalsArray(InsnList body, int argsLocal, MethodNode method, String owner,
+                                        Type[] arguments, int fillSeed) {
+        List<LocalValue> values = new ArrayList<>();
+        int local = 0;
+        if ((method.access & ACC_STATIC) == 0) {
+            values.add(new LocalValue(local, Type.getObjectType(owner)));
+            local++;
+        }
+        for (Type argument : arguments) {
+            values.add(new LocalValue(local, argument));
+            local += argument.getSize();
+        }
+        Collections.shuffle(values, new Random(fillSeed));
+        for (LocalValue value : values) {
+            body.add(new VarInsnNode(ALOAD, argsLocal));
+            pushInt(body, value.index());
+            addLoad(body, value.type(), value.index());
+            box(body, value.type());
+            body.add(new InsnNode(AASTORE));
+        }
     }
 
     private static void addLoad(InsnList body, Type type, int local) {
@@ -781,6 +914,12 @@ final class Virtualizer implements Opcodes {
         static ConstantKey of(Object value) {
             return new ConstantKey(value, value == null ? "null" : value.getClass().getName());
         }
+    }
+
+    private record StubShape(boolean argsBeforeProgram, int argsArrayKind, int fillSeed) {
+    }
+
+    private record LocalValue(int index, Type type) {
     }
 
     private record JumpFixup(int operandIndex, LabelNode target) {

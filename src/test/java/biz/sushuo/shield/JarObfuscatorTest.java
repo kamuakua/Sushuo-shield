@@ -1,5 +1,12 @@
 package biz.sushuo.shield;
 
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.tree.AbstractInsnNode;
+import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.InvokeDynamicInsnNode;
+import org.objectweb.asm.tree.LookupSwitchInsnNode;
+import org.objectweb.asm.tree.MethodInsnNode;
+import org.objectweb.asm.tree.MethodNode;
 import org.junit.jupiter.api.Test;
 
 import javax.tools.ToolProvider;
@@ -8,8 +15,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
@@ -18,8 +27,14 @@ import java.util.jar.Manifest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.objectweb.asm.Opcodes.ACC_PUBLIC;
+import static org.objectweb.asm.Opcodes.ACC_STATIC;
+import static org.objectweb.asm.Opcodes.INVOKESTATIC;
 
 final class JarObfuscatorTest {
+    private static final String RUNTIME_VM_ENTRY_DESCRIPTOR =
+            "([Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;";
+
     @Test
     void obfuscatesAndRunsVirtualizedJar() throws Exception {
         Path temp = Files.createTempDirectory("sushuo-shield-test");
@@ -67,28 +82,144 @@ final class JarObfuscatorTest {
 
         assertTrue(result.virtualizedMethods() >= 3);
         assertTrue(result.runtimeClassName().startsWith("sushuo1337/sushuoprotect/lib/"));
+        Set<String> bootstrapOwners = bootstrapOwners(output);
+        assertFalse(bootstrapOwners.contains(result.runtimeClassName()),
+                "main runtime remains a direct invokedynamic bootstrap owner: " + bootstrapOwners);
+        assertEquals(0, publicBootstrapMethods(output, result.runtimeClassName()),
+                "canonical bootstrap methods remain public on the main runtime");
+        List<String> directRuntimeBootstrapCalls = directRuntimeBootstrapCallSites(output, result.runtimeClassName());
+        assertTrue(directRuntimeBootstrapCalls.isEmpty(),
+                "bootstrap shards still directly forward into the main runtime: " + directRuntimeBootstrapCalls);
+        ClassNode bootstrapDispatch = readClassNode(output,
+                RuntimeClassGenerator.bootstrapDispatchClassName(result.runtimeClassName()) + ".class");
+        assertFalse((bootstrapDispatch.access & ACC_PUBLIC) != 0,
+                "bootstrap dispatch helper must remain package-private");
+        assertTrue(bootstrapOwners.size() >= 2,
+                "expected invokedynamic bootstrap calls to be distributed: " + bootstrapOwners);
+        Map<String, Integer> constantBootstrapDescriptors = constantBootstrapDescriptors(output);
+        assertTrue(constantBootstrapDescriptors.size() >= 4,
+                "expected diversified constant bootstrap descriptors: " + constantBootstrapDescriptors);
+        int constantBootstrapSites = constantBootstrapDescriptors.values().stream()
+                .mapToInt(Integer::intValue)
+                .sum();
+        int dominantConstantBootstrapSites = constantBootstrapDescriptors.values().stream()
+                .mapToInt(Integer::intValue)
+                .max()
+                .orElse(0);
+        assertTrue(constantBootstrapSites > 0
+                        && (double) dominantConstantBootstrapSites / constantBootstrapSites <= 0.55d,
+                "constant bootstrap descriptor remains dominant: " + constantBootstrapDescriptors);
+        List<String> plainVmEntryCalls = directRuntimeVmEntryCallSites(output, result.runtimeClassName());
+        assertTrue(plainVmEntryCalls.isEmpty(),
+                "plain runtime _v VM entry call sites leaked: " + plainVmEntryCalls);
         String listing = listJar(output);
         assertFalse(listing.contains("NativeBridge.class"));
         assertTrue(listing.matches("(?s).*sushuo1337/sushuoprotect/lib/B[0-9a-z]+\\.class.*"));
         assertTrue(listing.contains("sushuo1337/sushuoprotect/lib/"));
         String nativeEntry = nativeEntryName(output);
-        assertTrue(nativeEntry.startsWith("sushuo1337/sushuoprotect/lib/native/windows-x64/N"));
-        assertTrue(nativeEntry.endsWith(".bin"));
+        assertTrue(nativeEntry.startsWith("sushuo1337/sushuoprotect/lib/"));
+        assertTrue(nativeEntry.matches(".*\\.(bin|dat|res|pak|idx|cfg)"));
+        assertFalse(nativeEntry.contains("native/" + "windows-x64/"));
         assertFalse(listing.contains("sushuo1337_vm.dll"));
         assertFalse(listing.contains("sushuo1337_vm.dll.dat"));
         byte[] nativeBytes = readJarBytes(output, nativeEntry);
-        assertEquals('S', nativeBytes[0]);
-        assertEquals('S', nativeBytes[1]);
         assertFalse(nativeBytes[0] == 'M' && nativeBytes[1] == 'Z');
+        assertFalse(nativeBytes.length >= 4
+                && nativeBytes[0] == 'S'
+                && nativeBytes[1] == 'S'
+                && nativeBytes[2] == 'N'
+                && nativeBytes[3] == '2');
         assertFalse(listing.contains("dev/"));
 
         Process process = new ProcessBuilder(javaBin(), "-jar", output.toString())
                 .redirectErrorStream(true)
                 .start();
-        String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
-                .replace("\r\n", "\n");
+        String stdout = processOutput(process);
         assertEquals(0, process.waitFor());
         assertEquals("21862\n270\n21776\n", stdout);
+    }
+
+    @Test
+    void vmResourcePathsAreDistributedForRealAndDecoys() {
+        NamingPlan namingPlan = new NamingPlan(Map.of(), Map.of(), Map.of(),
+                "probe/runtime/", "probe/runtime/C1", "probe/runtime/assets/native.bin");
+        VmPayloadResources realResources = new VmPayloadResources(namingPlan, 0x5EED1234L);
+        java.util.Set<String> realNames = new java.util.HashSet<>();
+        for (int i = 0; i < 18; i++) {
+            String runtimeName = realResources.add(sampleProgram(i), "demo/Owner" + i, "m" + i, "(I)I");
+            realNames.add(runtimeName.substring(1));
+        }
+
+        ObfuscationOptions options = ObfuscationOptions.builder()
+                .input(Path.of("in.jar"))
+                .output(Path.of("out.jar"))
+                .seed(0x5EED1234L)
+                .mode(ProtectionMode.STACKED)
+                .antiAiDeobfuscation(true)
+                .build();
+        Map<String, byte[]> decoys = AntiDeobfuscationNoise.resources(options, namingPlan, realNames);
+
+        assertTrue(decoys.size() >= 6);
+        assertDistributedVmResourceNames(realNames, namingPlan.runtimeClassName());
+        assertDistributedVmResourceNames(decoys.keySet(), namingPlan.runtimeClassName());
+    }
+
+    @Test
+    void controlFlowFlattensSimpleLinearArithmeticMethod() throws Exception {
+        Path temp = Files.createTempDirectory("sushuo-shield-cfg");
+        Path sourceRoot = Files.createDirectories(temp.resolve("src/demo"));
+        Path classRoot = Files.createDirectories(temp.resolve("classes"));
+        Path source = sourceRoot.resolve("FlowApp.java");
+        Files.writeString(source, """
+                package demo;
+
+                public final class FlowApp {
+                    public static void main(String[] args) {
+                        System.out.println(linear(7, 5));
+                    }
+
+                    static int linear(int a, int b) {
+                        int x = a + b;
+                        int y = x * 3;
+                        int z = y ^ 0x55AA;
+                        return z - 17;
+                    }
+                }
+                """);
+
+        int compileResult = ToolProvider.getSystemJavaCompiler()
+                .run(null, null, null, "-d", classRoot.toString(), source.toString());
+        assertEquals(0, compileResult);
+
+        Path input = temp.resolve("input.jar");
+        createJar(input, classRoot, "demo.FlowApp");
+        Path output = temp.resolve("output.jar");
+
+        new JarObfuscator().obfuscate(ObfuscationOptions.builder()
+                .input(input)
+                .output(output)
+                .seed(0xC0FFEE12L)
+                .renameClasses(false)
+                .renameMembers(false)
+                .encryptStrings(false)
+                .obfuscateNumbers(false)
+                .virtualize(false)
+                .controlFlow(true)
+                .referenceObfuscation(false)
+                .antiAiDeobfuscation(false)
+                .requireNativeVm(false)
+                .build());
+
+        ClassNode flowApp = readClassNode(output, "demo/FlowApp.class");
+        MethodNode linear = findMethod(flowApp, "linear", "(II)I");
+        assertTrue(containsLookupSwitch(linear), "linear method should be switch-flattened");
+
+        Process process = new ProcessBuilder(javaBin(), "-jar", output.toString())
+                .redirectErrorStream(true)
+                .start();
+        String stdout = processOutput(process);
+        assertEquals(0, process.waitFor());
+        assertEquals("21885\n", stdout);
     }
 
     @Test
@@ -164,8 +295,7 @@ final class JarObfuscatorTest {
         Process process = new ProcessBuilder(javaBin(), "-jar", output.toString())
                 .redirectErrorStream(true)
                 .start();
-        String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
-                .replace("\r\n", "\n");
+        String stdout = processOutput(process);
         assertEquals(0, process.waitFor());
         assertEquals("-1754714991\n10\n6\n1\n9372\n", stdout);
     }
@@ -219,8 +349,7 @@ final class JarObfuscatorTest {
         Process process = new ProcessBuilder(javaBin(), "-jar", output.toString())
                 .redirectErrorStream(true)
                 .start();
-        String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
-                .replace("\r\n", "\n");
+        String stdout = processOutput(process);
         assertEquals(0, process.waitFor());
         assertEquals("Grimvelo Debug: combat Delay velocity: 7 marker=V enabled=true\n", stdout);
     }
@@ -274,8 +403,7 @@ final class JarObfuscatorTest {
         Process process = new ProcessBuilder(javaBin(), "-jar", output.toString())
                 .redirectErrorStream(true)
                 .start();
-        String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
-                .replace("\r\n", "\n");
+        String stdout = processOutput(process);
         assertEquals(0, process.waitFor());
         assertEquals("42\n1\n", stdout);
     }
@@ -344,8 +472,7 @@ final class JarObfuscatorTest {
         Process process = new ProcessBuilder(javaBin(), "-jar", output.toString())
                 .redirectErrorStream(true)
                 .start();
-        String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
-                .replace("\r\n", "\n");
+        String stdout = processOutput(process);
         assertEquals(0, process.waitFor());
         assertEquals("25\ntrue\n", stdout);
     }
@@ -403,8 +530,7 @@ final class JarObfuscatorTest {
         Process process = new ProcessBuilder(javaBin(), "-jar", output.toString())
                 .redirectErrorStream(true)
                 .start();
-        String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
-                .replace("\r\n", "\n");
+        String stdout = processOutput(process);
         assertEquals(0, process.waitFor());
         assertEquals("42\n", stdout);
     }
@@ -589,12 +715,244 @@ final class JarObfuscatorTest {
         }
     }
 
+    private static List<String> directRuntimeVmEntryCallSites(Path jar, String runtimeClassName) throws IOException {
+        List<String> callSites = new ArrayList<>();
+        try (java.util.jar.JarFile jarFile = new java.util.jar.JarFile(jar.toFile())) {
+            for (JarEntry entry : jarFile.stream()
+                    .filter(candidate -> candidate.getName().endsWith(".class"))
+                    .toList()) {
+                ClassNode classNode = new ClassNode();
+                new ClassReader(jarFile.getInputStream(entry).readAllBytes()).accept(classNode, 0);
+                for (MethodNode method : classNode.methods) {
+                    if (method.instructions == null) {
+                        continue;
+                    }
+                    for (AbstractInsnNode instruction = method.instructions.getFirst();
+                         instruction != null;
+                         instruction = instruction.getNext()) {
+                        if (instruction instanceof MethodInsnNode call
+                                && call.getOpcode() == INVOKESTATIC
+                                && runtimeClassName.equals(call.owner)
+                                && "_v".equals(call.name)
+                                && RUNTIME_VM_ENTRY_DESCRIPTOR.equals(call.desc)) {
+                            callSites.add(classNode.name + "#" + method.name + method.desc);
+                        }
+                    }
+                }
+            }
+        }
+        return callSites;
+    }
+
+    private static List<String> directRuntimeBootstrapCallSites(Path jar, String runtimeClassName) throws IOException {
+        List<String> callSites = new ArrayList<>();
+        try (java.util.jar.JarFile jarFile = new java.util.jar.JarFile(jar.toFile())) {
+            for (JarEntry entry : jarFile.stream()
+                    .filter(candidate -> candidate.getName().endsWith(".class"))
+                    .toList()) {
+                ClassNode classNode = new ClassNode();
+                new ClassReader(jarFile.getInputStream(entry).readAllBytes()).accept(classNode, 0);
+                for (MethodNode method : classNode.methods) {
+                    if (method.instructions == null) {
+                        continue;
+                    }
+                    for (AbstractInsnNode instruction = method.instructions.getFirst();
+                         instruction != null;
+                         instruction = instruction.getNext()) {
+                        if (instruction instanceof MethodInsnNode call
+                                && call.getOpcode() == INVOKESTATIC
+                                && runtimeClassName.equals(call.owner)
+                                && call.desc.endsWith(")Ljava/lang/invoke/CallSite;")) {
+                            callSites.add(classNode.name + "#" + method.name + method.desc
+                                    + " -> " + call.name + call.desc);
+                        }
+                    }
+                }
+            }
+        }
+        return callSites;
+    }
+
+    private static Set<String> bootstrapOwners(Path jar) throws IOException {
+        Set<String> owners = new HashSet<>();
+        try (java.util.jar.JarFile jarFile = new java.util.jar.JarFile(jar.toFile())) {
+            for (JarEntry entry : jarFile.stream()
+                    .filter(candidate -> candidate.getName().endsWith(".class"))
+                    .toList()) {
+                ClassNode classNode = new ClassNode();
+                new ClassReader(jarFile.getInputStream(entry).readAllBytes()).accept(classNode, 0);
+                for (MethodNode method : classNode.methods) {
+                    if (method.instructions == null) {
+                        continue;
+                    }
+                    for (AbstractInsnNode instruction = method.instructions.getFirst();
+                         instruction != null;
+                         instruction = instruction.getNext()) {
+                        if (instruction instanceof InvokeDynamicInsnNode indy && indy.bsm != null) {
+                            owners.add(indy.bsm.getOwner());
+                        }
+                    }
+                }
+            }
+        }
+        return owners;
+    }
+
+    private static Map<String, Integer> constantBootstrapDescriptors(Path jar) throws IOException {
+        Map<String, Integer> descriptors = new java.util.TreeMap<>();
+        try (java.util.jar.JarFile jarFile = new java.util.jar.JarFile(jar.toFile())) {
+            for (JarEntry entry : jarFile.stream()
+                    .filter(candidate -> candidate.getName().endsWith(".class"))
+                    .toList()) {
+                ClassNode classNode = new ClassNode();
+                new ClassReader(jarFile.getInputStream(entry).readAllBytes()).accept(classNode, 0);
+                for (MethodNode method : classNode.methods) {
+                    if (method.instructions == null) {
+                        continue;
+                    }
+                    for (AbstractInsnNode instruction = method.instructions.getFirst();
+                         instruction != null;
+                         instruction = instruction.getNext()) {
+                        if (instruction instanceof InvokeDynamicInsnNode indy
+                                && indy.bsm != null
+                                && isZeroArgumentConstant(indy.desc)) {
+                            descriptors.merge(indy.bsm.getDesc(), 1, Integer::sum);
+                        }
+                    }
+                }
+            }
+        }
+        return descriptors;
+    }
+
+    private static int publicBootstrapMethods(Path jar, String runtimeClassName) throws IOException {
+        ClassNode runtime = readClassNode(jar, runtimeClassName + ".class");
+        int count = 0;
+        for (MethodNode method : runtime.methods) {
+            if ((method.access & (ACC_PUBLIC | ACC_STATIC)) == (ACC_PUBLIC | ACC_STATIC)
+                    && method.desc.endsWith(")Ljava/lang/invoke/CallSite;")) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static boolean isZeroArgumentConstant(String descriptor) {
+        if (!descriptor.startsWith("()")) {
+            return false;
+        }
+        return descriptor.equals("()I")
+                || descriptor.equals("()J")
+                || descriptor.equals("()F")
+                || descriptor.equals("()D")
+                || descriptor.equals("()Ljava/lang/String;");
+    }
+
+    private static ClassNode readClassNode(Path jar, String name) throws IOException {
+        ClassNode classNode = new ClassNode();
+        new ClassReader(readJarBytes(jar, name)).accept(classNode, 0);
+        return classNode;
+    }
+
+    private static MethodNode findMethod(ClassNode classNode, String name, String desc) {
+        for (MethodNode method : classNode.methods) {
+            if (method.name.equals(name) && method.desc.equals(desc)) {
+                return method;
+            }
+        }
+        throw new AssertionError("Method not found: " + classNode.name + "#" + name + desc);
+    }
+
+    private static boolean containsLookupSwitch(MethodNode method) {
+        if (method.instructions == null) {
+            return false;
+        }
+        for (AbstractInsnNode instruction = method.instructions.getFirst();
+             instruction != null;
+             instruction = instruction.getNext()) {
+            if (instruction instanceof LookupSwitchInsnNode) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static VirtualProgram sampleProgram(int index) {
+        int[] opcodeMap = new int[VirtualOp.MAX_OPCODE + 1];
+        for (int opcode : VirtualOp.logicalOpcodes()) {
+            opcodeMap[opcode] = opcode;
+        }
+        int key = 0x13579BDF ^ index * 0x45D9F3B;
+        if (key == 0) {
+            key = 0x2468ACE1;
+        }
+        return new VirtualProgram(1000 + index, 2, 1, VirtualProgram.RETURN_INT,
+                new int[]{VirtualOp.LOAD, 0, VirtualOp.PUSH_CONST, 0, VirtualOp.IXOR, VirtualOp.RETURN},
+                List.of(index * 17 + 3), key, opcodeMap,
+                "demo/Owner" + index, "m" + index, null);
+    }
+
+    private static void assertDistributedVmResourceNames(java.util.Set<String> names, String runtimeClassName) {
+        assertFalse(names.isEmpty());
+        int slash = runtimeClassName.lastIndexOf('/');
+        String base = slash < 0 ? "" : runtimeClassName.substring(0, slash + 1);
+        java.util.Set<String> buckets = new java.util.HashSet<>();
+        java.util.Set<String> extensions = new java.util.HashSet<>();
+        for (String name : names) {
+            assertTrue(name.startsWith(base));
+            assertFalse(name.contains("data/" + "R"));
+            assertFalse(name.contains("native/" + "windows-x64"));
+            String relative = name.substring(base.length());
+            int bucketEnd = relative.indexOf('/');
+            assertTrue(bucketEnd > 0, name);
+            buckets.add(relative.substring(0, bucketEnd));
+            int dot = relative.lastIndexOf('.');
+            assertTrue(dot > bucketEnd, name);
+            String extension = relative.substring(dot);
+            assertTrue(extension.matches("\\.(bin|dat|res|pak|idx|cfg)"), name);
+            extensions.add(extension);
+        }
+        assertTrue(buckets.size() >= 2, "expected multiple VM resource buckets: " + names);
+        assertTrue(extensions.size() >= 2, "expected multiple VM resource extensions: " + names);
+    }
+
+    private static String processOutput(Process process) throws IOException {
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
+                .replace("\r\n", "\n");
+        return stripNativeAccessWarnings(output);
+    }
+
+    private static String stripNativeAccessWarnings(String output) {
+        String[] lines = output.split("\n", -1);
+        StringBuilder cleaned = new StringBuilder(output.length());
+        boolean skippedWarning = false;
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            if (line.startsWith("WARNING: ")) {
+                skippedWarning = true;
+                continue;
+            }
+            if (skippedWarning && line.isEmpty()) {
+                skippedWarning = false;
+                continue;
+            }
+            skippedWarning = false;
+            cleaned.append(line);
+            if (i < lines.length - 1) {
+                cleaned.append('\n');
+            }
+        }
+        return cleaned.toString();
+    }
+
     private static String nativeEntryName(Path jar) throws IOException {
         try (java.util.jar.JarFile jarFile = new java.util.jar.JarFile(jar.toFile())) {
             return jarFile.stream()
                     .map(JarEntry::getName)
-                    .filter(name -> name.startsWith("sushuo1337/sushuoprotect/lib/native/windows-x64/"))
-                    .filter(name -> name.endsWith(".bin"))
+                    .filter(name -> name.startsWith("sushuo1337/sushuoprotect/lib/"))
+                    .filter(name -> !name.endsWith(".class"))
+                    .filter(name -> !name.contains("meta/"))
+                    .filter(name -> name.matches(".*\\.(bin|dat|res|pak|idx|cfg)"))
                     .findFirst()
                     .orElseThrow();
         }

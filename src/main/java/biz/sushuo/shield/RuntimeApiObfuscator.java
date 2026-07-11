@@ -14,7 +14,7 @@ import java.util.TreeMap;
 
 final class RuntimeApiObfuscator {
     private static final String[][] API = {
-            {"_v", "([Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;"},
+            {"_vx", "(Ljava/lang/Object;Ljava/lang/Object;I)Ljava/lang/Object;"},
             {"_d", "(Ljava/lang/String;I)Ljava/lang/String;"},
             {"_d", "(Ljava/lang/String;III)Ljava/lang/String;"},
             {"_q", "(III)I"},
@@ -23,6 +23,9 @@ final class RuntimeApiObfuscator {
             {"_cs", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/String;IIII)Ljava/lang/invoke/CallSite;"},
             {"_ci", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;IIIII)Ljava/lang/invoke/CallSite;"},
             {"_cl", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;JJIII)Ljava/lang/invoke/CallSite;"},
+            {"_cf", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;IIIII)Ljava/lang/invoke/CallSite;"},
+            {"_cd", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;JJIII)Ljava/lang/invoke/CallSite;"},
+            {"_rm", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IIII)Ljava/lang/invoke/CallSite;"},
             {"_m", "(Ljava/lang/String;)Ljava/lang/String;"},
             {"_ma", "([Ljava/lang/String;)[Ljava/lang/String;"},
             {"_sc", "(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;"},
@@ -33,7 +36,8 @@ final class RuntimeApiObfuscator {
             {"_gh", "(II)V"},
             {"_rl", "(Ljava/lang/ClassLoader;Ljava/lang/String;)Ljava/io/InputStream;"},
             {"_rc", "(Ljava/lang/Class;Ljava/lang/String;)Ljava/io/InputStream;"},
-            {"_rg", "(Ljava/lang/String;)Ljava/io/InputStream;"}
+            {"_rg", "(Ljava/lang/String;)Ljava/io/InputStream;"},
+            {"_rv", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;III)Ljava/lang/invoke/CallSite;"}
     };
 
     private RuntimeApiObfuscator() {

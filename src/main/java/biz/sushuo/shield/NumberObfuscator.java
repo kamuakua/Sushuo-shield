@@ -18,6 +18,8 @@ final class NumberObfuscator implements Opcodes {
     private static final int FLAG_NATIVE_KEY = 1;
     private static final int CONST_KIND_INT = 2;
     private static final int CONST_KIND_LONG = 3;
+    private static final int CONST_KIND_FLOAT = 4;
+    private static final int CONST_KIND_DOUBLE = 5;
 
     private NumberObfuscator() {
     }
@@ -65,6 +67,14 @@ final class NumberObfuscator implements Opcodes {
                         site, random, namingPlan, nativeKeys, seed);
                 if (replacement == null) {
                     replacement = longReplacement(instruction, runtimeClassName, mappedOwner, mappedMethod,
+                            site, random, namingPlan, nativeKeys, seed);
+                }
+                if (replacement == null) {
+                    replacement = floatReplacement(instruction, runtimeClassName, mappedOwner, mappedMethod,
+                            site, random, namingPlan, nativeKeys, seed);
+                }
+                if (replacement == null) {
+                    replacement = doubleReplacement(instruction, runtimeClassName, mappedOwner, mappedMethod,
                             site, random, namingPlan, nativeKeys, seed);
                 }
                 if (replacement != null) {
@@ -155,6 +165,72 @@ final class NumberObfuscator implements Opcodes {
         return list;
     }
 
+    private static InsnList floatReplacement(AbstractInsnNode instruction, String runtimeClassName, String owner, String method,
+                                             int site, Random random, NamingPlan namingPlan, boolean nativeKeys, long seed) {
+        Float value = floatValue(instruction);
+        if (value == null) {
+            return null;
+        }
+        int key = random.nextInt();
+        int salt = random.nextInt();
+        String indyName = indyName(random, method, site);
+        int dynamicKey = dynamicIntKey(key, site, salt, owner, indyName);
+        if (nativeKeys) {
+            if (namingPlan == null) {
+                throw new IllegalArgumentException("Native-key number obfuscation requires a naming plan");
+            }
+            dynamicKey ^= VmPayloadResources.constantMask32(namingPlan, seed, CONST_KIND_FLOAT,
+                    owner.replace('/', '.'), indyName, key, site, salt);
+        }
+        int encrypted = Float.floatToIntBits(value) ^ dynamicKey;
+        InsnList list = new InsnList();
+        list.add(new InvokeDynamicInsnNode(
+                indyName,
+                "()F",
+                new Handle(H_INVOKESTATIC, runtimeClassName, "_cf",
+                        "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;IIIII)Ljava/lang/invoke/CallSite;",
+                        false),
+                encrypted,
+                key,
+                site,
+                salt,
+                nativeKeys ? FLAG_NATIVE_KEY : 0));
+        return list;
+    }
+
+    private static InsnList doubleReplacement(AbstractInsnNode instruction, String runtimeClassName, String owner, String method,
+                                              int site, Random random, NamingPlan namingPlan, boolean nativeKeys, long seed) {
+        Double value = doubleValue(instruction);
+        if (value == null) {
+            return null;
+        }
+        long key = random.nextLong();
+        int salt = random.nextInt();
+        String indyName = indyName(random, method, site);
+        long dynamicKey = dynamicLongKey(key, site, salt, owner, indyName);
+        if (nativeKeys) {
+            if (namingPlan == null) {
+                throw new IllegalArgumentException("Native-key number obfuscation requires a naming plan");
+            }
+            dynamicKey ^= VmPayloadResources.constantMask64(namingPlan, seed, CONST_KIND_DOUBLE,
+                    owner.replace('/', '.'), indyName, key, site, salt);
+        }
+        long encrypted = Double.doubleToLongBits(value) ^ dynamicKey;
+        InsnList list = new InsnList();
+        list.add(new InvokeDynamicInsnNode(
+                indyName,
+                "()D",
+                new Handle(H_INVOKESTATIC, runtimeClassName, "_cd",
+                        "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;JJIII)Ljava/lang/invoke/CallSite;",
+                        false),
+                encrypted,
+                key,
+                site,
+                salt,
+                nativeKeys ? FLAG_NATIVE_KEY : 0));
+        return list;
+    }
+
     private static String indyName(Random random, String method, int site) {
         int a = mix(random.nextInt() ^ method.hashCode() ^ site * 0x45D9F3B);
         int b = mix(random.nextInt() ^ Integer.rotateLeft(a, 11) ^ site * 0x27D4EB2D);
@@ -229,6 +305,33 @@ final class NumberObfuscator implements Opcodes {
             case LDC -> {
                 Object constant = ((LdcInsnNode) instruction).cst;
                 yield constant instanceof Long longValue ? longValue : null;
+            }
+            default -> null;
+        };
+    }
+
+    private static Float floatValue(AbstractInsnNode instruction) {
+        int opcode = instruction.getOpcode();
+        return switch (opcode) {
+            case FCONST_0 -> 0.0f;
+            case FCONST_1 -> 1.0f;
+            case FCONST_2 -> 2.0f;
+            case LDC -> {
+                Object constant = ((LdcInsnNode) instruction).cst;
+                yield constant instanceof Float floatValue ? floatValue : null;
+            }
+            default -> null;
+        };
+    }
+
+    private static Double doubleValue(AbstractInsnNode instruction) {
+        int opcode = instruction.getOpcode();
+        return switch (opcode) {
+            case DCONST_0 -> 0.0d;
+            case DCONST_1 -> 1.0d;
+            case LDC -> {
+                Object constant = ((LdcInsnNode) instruction).cst;
+                yield constant instanceof Double doubleValue ? doubleValue : null;
             }
             default -> null;
         };

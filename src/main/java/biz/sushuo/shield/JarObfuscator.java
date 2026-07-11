@@ -15,7 +15,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -89,6 +88,8 @@ final class JarObfuscator {
                 watermark.integrityHash(), runtimeApiNames));
 
         outputClasses = RuntimeApiObfuscator.rewriteClasses(outputClasses, namingPlan.runtimeClassName(), runtimeApiNames);
+        outputClasses = BootstrapShardObfuscator.distribute(outputClasses, namingPlan.runtimeClassName(),
+                runtimeApiNames, options.seed());
 
         int encryptedResources = writeOutput(options, input.resources(), outputClasses, nativeResources, vmResources, namingPlan);
 
@@ -122,81 +123,7 @@ final class JarObfuscator {
 
     private static Map<String, byte[]> antiDeobfuscationResources(ObfuscationOptions options, NamingPlan namingPlan,
                                                                   Set<String> usedNames) {
-        if (!options.antiAiDeobfuscation()) {
-            return Map.of();
-        }
-        Random random = new Random(options.seed() ^ 0x41B5D03F9E3779B9L);
-        Map<String, byte[]> resources = new TreeMap<>();
-        int count = switch (options.mode()) {
-            case ZKM26 -> 3;
-            case JNIC, VMP, STACKED, MINECRAFT_MAX -> 8;
-            default -> 4;
-        };
-        for (int i = 0; i < count; i++) {
-            String name;
-            do {
-                name = namingPlan.namePrefix() + "data/R"
-                        + Long.toUnsignedString(random.nextLong(), 36)
-                        + Long.toUnsignedString(random.nextLong(), 36)
-                        + ".bin";
-            } while (usedNames.contains(name) || resources.containsKey(name));
-            resources.put(name, decoyPayload(random, i));
-        }
-        String mapName = uniqueAntiResourceName(options, namingPlan, usedNames, resources, random, "m/A", ".bin");
-        resources.put(mapName, sealedAnalysisRecord(options, namingPlan, random, 0));
-        String traceName = uniqueAntiResourceName(options, namingPlan, usedNames, resources, random, "d/T", ".bin");
-        resources.put(traceName, sealedAnalysisRecord(options, namingPlan, random, 1));
-        return resources;
-    }
-
-    private static String uniqueAntiResourceName(ObfuscationOptions options, NamingPlan namingPlan, Set<String> usedNames,
-                                                 Map<String, byte[]> resources, Random random,
-                                                 String infix, String suffix) {
-        String name;
-        do {
-            name = namingPlan.namePrefix() + infix
-                    + Long.toUnsignedString(random.nextLong(), 36)
-                    + Long.toUnsignedString(random.nextLong(), 36)
-                    + suffix;
-        } while (usedNames.contains(name) || resources.containsKey(name));
-        return name;
-    }
-
-    private static byte[] sealedAnalysisRecord(ObfuscationOptions options, NamingPlan namingPlan,
-                                               Random random, int variant) {
-        int length = 192 + random.nextInt(320);
-        int context = mix(options.mode().ordinal()
-                ^ Integer.rotateLeft(namingPlan.runtimeClassName().hashCode(), 5)
-                ^ Integer.rotateLeft(namingPlan.namePrefix().hashCode(), 11)
-                ^ variant * 0x45D9F3B
-                ^ random.nextInt());
-        return sealedNoise(random, context, length);
-    }
-
-    private static byte[] decoyPayload(Random random, int index) {
-        int length = 64 + random.nextInt(192);
-        return sealedNoise(random, mix(index * 0x45D9F3B ^ random.nextInt()), length);
-    }
-
-    private static byte[] sealedNoise(Random random, int context, int length) {
-        byte[] data = new byte[length];
-        int state = mix(context ^ length ^ 0x6D2B79F5);
-        int rolling = mix(context ^ 0x165667B1);
-        for (int i = 0; i < data.length; i++) {
-            state = mix(state ^ random.nextInt() ^ i * 0x9E3779B9);
-            rolling = Integer.rotateLeft(rolling + state + i * 0x27D4EB2D, 7);
-            data[i] = (byte) ((state >>> ((i & 3) * 8)) ^ (rolling >>> 19));
-        }
-        return data;
-    }
-
-    private static int mix(int value) {
-        value ^= value >>> 16;
-        value *= 0x7FEB352D;
-        value ^= value >>> 15;
-        value *= 0x846CA68B;
-        value ^= value >>> 16;
-        return value == 0 ? 0x13579BDF : value;
+        return AntiDeobfuscationNoise.resources(options, namingPlan, usedNames);
     }
 
     private static TransformedClass transformClass(

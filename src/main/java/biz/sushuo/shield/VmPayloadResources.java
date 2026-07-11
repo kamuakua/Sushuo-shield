@@ -10,11 +10,16 @@ import java.util.Map;
 
 final class VmPayloadResources {
     static final int RESOURCE_MARKER = 0x53535234; // SSR4
-    static final int RESOURCE_MAGIC = 0x6D4F9B17;
-    static final int RESOURCE_VERSION = 3;
+    static final int RESOURCE_VERSION = 4;
     static final int CODE_SALT = 0x41C64E6D;
     static final int MAP_SALT = 0x27D4EB2D;
     static final int PACKED_CHUNK_BYTES = 64;
+    private static final String[] RESOURCE_BUCKETS = {
+            "assets", "res", "cfg", "lib", "packs", "modules"
+    };
+    private static final String[] RESOURCE_EXTENSIONS = {
+            ".bin", ".dat", ".res", ".pak", ".idx", ".cfg"
+    };
     private static final int RESOURCE_SALT = 0x6A09E667;
     private static final int SEAL_SALT = 0x4B455931;
     private static final int CONSTANT_NULL = 0;
@@ -105,6 +110,36 @@ final class VmPayloadResources {
         return mix(state ^ indyName.length() * 0x9E3779B9);
     }
 
+    static String distributedVmResourceName(String runtimeClassName, int a, int b, int c, int selector) {
+        int slash = runtimeClassName.lastIndexOf('/');
+        String base = slash < 0 ? "" : runtimeClassName.substring(0, slash + 1);
+        return distributedResourceName(base, a, b, c, selector);
+    }
+
+    static String distributedResourceName(String prefix, int a, int b, int c, int selector) {
+        String base = prefix == null || prefix.isEmpty() ? "" : prefix.endsWith("/") ? prefix : prefix + "/";
+        int route = Math.floorMod(selector, RESOURCE_BUCKETS.length);
+        String first = token(a);
+        String second = token(b);
+        String third = token(c);
+        String leaf = "p"
+                + token(a ^ Integer.rotateLeft(c, 7))
+                + token(b ^ Integer.rotateLeft(selector, 11));
+        String extension = RESOURCE_EXTENSIONS[Math.floorMod(selector >>> 8, RESOURCE_EXTENSIONS.length)];
+        return switch (route) {
+            case 0 -> base + RESOURCE_BUCKETS[route] + "/" + first + "/" + leaf + extension;
+            case 1 -> base + RESOURCE_BUCKETS[route] + "/" + first + "/" + second + "/" + leaf + extension;
+            case 2 -> base + RESOURCE_BUCKETS[route] + "/" + second + "/" + leaf + extension;
+            case 3 -> base + RESOURCE_BUCKETS[route] + "/" + third + "/" + leaf + extension;
+            case 4 -> base + RESOURCE_BUCKETS[route] + "/" + first + second.charAt(0) + "/" + leaf + extension;
+            default -> base + RESOURCE_BUCKETS[route] + "/" + second + "/" + third + "/" + leaf + extension;
+        };
+    }
+
+    private static String token(int value) {
+        return Integer.toUnsignedString(mix(value), 36);
+    }
+
     static long constantMask64(NamingPlan plan, long seed, int kind, String dottedOwner,
                                String indyName, long key, int site, int salt) {
         byte[] secret = nativeSecret(plan, seed);
@@ -143,14 +178,12 @@ final class VmPayloadResources {
         int a = mix((int) seed ^ program.key() ^ originalOwner.hashCode());
         int b = mix((int) (seed >>> 32) ^ program.id() ^ originalMethod.hashCode());
         int c = mix(program.code().length ^ descriptor.hashCode() ^ Integer.rotateLeft(program.key(), 11));
-        String runtime = plan.runtimeClassName();
-        int slash = runtime.lastIndexOf('/');
-        String base = slash < 0 ? "" : runtime.substring(0, slash + 1);
-        return base + "data/R"
-                + Integer.toUnsignedString(a, 36)
-                + Integer.toUnsignedString(b, 36)
-                + Integer.toUnsignedString(c, 36)
-                + ".bin";
+        int selector = mix(a
+                ^ Integer.rotateLeft(b, 5)
+                ^ Integer.rotateLeft(c, 17)
+                ^ program.returnKind() * 0x45D9F3B
+                ^ descriptor.length() * 0x27D4EB2D);
+        return distributedVmResourceName(plan.runtimeClassName(), a, b, c, selector);
     }
 
     private byte[] pack(VirtualProgram program, String runtimeName) {
@@ -165,23 +198,48 @@ final class VmPayloadResources {
                 ^ Integer.rotateLeft(program.code().length, 5)
                 ^ Integer.rotateLeft(payload.length, 13)
                 ^ RESOURCE_SALT);
-        int keyTag = program.key() ^ resourceHash ^ RESOURCE_MAGIC ^ nonce;
         byte[] encoded = payload.clone();
+        int totalLength = 28 + encoded.length;
+        int format = resourceFormat(resourceHash, totalLength);
+        int keyTag = program.key() ^ resourceHash ^ format ^ nonce;
         for (int i = 0; i < encoded.length; i++) {
             encoded[i] = (byte) (encoded[i] ^ resourceMask(program.key(), nonce,
                     resourceHash, program.code().length, payload.length, i, nativeSecret));
         }
 
-        ByteBuffer buffer = ByteBuffer.allocate(28 + encoded.length).order(ByteOrder.BIG_ENDIAN);
-        buffer.putInt(RESOURCE_MAGIC);
-        buffer.putInt(RESOURCE_VERSION);
-        buffer.putInt(nonce);
-        buffer.putInt(keyTag);
-        buffer.putInt(program.code().length);
-        buffer.putInt(encoded.length);
-        buffer.putInt(contextTag(program, resourceHash));
+        ByteBuffer buffer = ByteBuffer.allocate(totalLength).order(ByteOrder.BIG_ENDIAN);
+        buffer.putInt(format ^ resourceHeaderMask(resourceHash, totalLength, 0));
+        buffer.putInt(RESOURCE_VERSION ^ resourceHeaderMask(resourceHash, totalLength, 1));
+        buffer.putInt(nonce ^ resourceHeaderMask(resourceHash, totalLength, 2));
+        buffer.putInt(keyTag ^ resourceHeaderMask(resourceHash, totalLength, 3));
+        buffer.putInt(program.code().length ^ resourceHeaderMask(resourceHash, totalLength, 4));
+        buffer.putInt(encoded.length ^ resourceHeaderMask(resourceHash, totalLength, 5));
+        buffer.putInt(contextTag(program, resourceHash) ^ resourceHeaderMask(resourceHash, totalLength, 6));
         buffer.put(encoded);
         return buffer.array();
+    }
+
+    private int resourceFormat(int resourceHash, int totalLength) {
+        int value = 0x52464D34 ^ resourceHash ^ totalLength;
+        value ^= secretWord(nativeSecret, 0);
+        value ^= Integer.rotateLeft(secretWord(nativeSecret, 1), 9);
+        value ^= Integer.rotateLeft(secretWord(nativeSecret, 2), totalLength & 31);
+        return mix(value ^ secretWord(nativeSecret, 3));
+    }
+
+    private int resourceHeaderMask(int resourceHash, int totalLength, int slot) {
+        int value = 0x56485244 ^ resourceHash;
+        value ^= Integer.rotateLeft(totalLength * 0x45D9F3B, (slot + 5) & 31);
+        value ^= secretWord(nativeSecret, slot & 3);
+        value ^= Integer.rotateLeft(secretWord(nativeSecret, (slot + 1) & 3), (slot * 7 + 3) & 31);
+        value ^= slot * 0x9E3779B9;
+        value = Integer.rotateLeft(value + 0x7F4A7C15, 9);
+        value ^= value >>> 16;
+        value *= 0x85EBCA6B;
+        value ^= value >>> 13;
+        value *= 0xC2B2AE35;
+        value ^= value >>> 16;
+        return value == 0 ? 0x13579BDF : value;
     }
 
     private static int contextTag(VirtualProgram program, int resourceHash) {

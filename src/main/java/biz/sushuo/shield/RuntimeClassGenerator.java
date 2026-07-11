@@ -12,6 +12,7 @@ import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.InvokeDynamicInsnNode;
+import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
@@ -36,6 +37,7 @@ final class RuntimeClassGenerator {
     private static final String TEMPLATE = "biz/sushuo/shield/runtime/InjectedRuntime";
     private static final String NATIVE_ONLY_TEMPLATE = "biz/sushuo/shield/runtime/NativeOnlyRuntime";
     private static final String NATIVE_BRIDGE_TEMPLATE = "biz/sushuo/shield/runtime/NativeBridge";
+    private static final String BOOTSTRAP_DISPATCH_TEMPLATE = "biz/sushuo/shield/runtime/BootstrapDispatch";
     static final String NATIVE_BRIDGE = "sushuo1337/sushuoprotect/lib/NativeBridge";
     private static final byte[] NATIVE_BRIDGE_MARKER = NATIVE_BRIDGE.getBytes(StandardCharsets.ISO_8859_1);
     static final String NATIVE_RESOURCE_DIR = "sushuo1337/sushuoprotect/lib/native/";
@@ -57,8 +59,7 @@ final class RuntimeClassGenerator {
     private static final String NATIVE_REQUIRED_PROPERTY_TOKEN = "%%SUSHUO_NATIVE_REQUIRED_PROPERTY%%";
     private static final String SELF_HASH_TOKEN = "J$7e9a2d4f00000000";
     private static final String SELF_HASH_PREFIX = "J$7e9a2d4f";
-    private static final int NATIVE_MAGIC = 0x53534E32; // SSN2
-    private static final int NATIVE_VERSION = 2;
+    private static final int NATIVE_VERSION = 3;
     private static final byte[] NATIVE_SECRET_MARKER = new byte[]{
             0x53, 0x53, 0x4B, 0x21,
             0x5A, 0x4E, 0x31, 0x43,
@@ -101,6 +102,7 @@ final class RuntimeClassGenerator {
         String bridgeKeyIntMethodName = bridgeKeyIntMethodName(runtimeClassName);
         String bridgeKeyLongMethodName = bridgeKeyLongMethodName(runtimeClassName);
         String nativeLibraryName = nativeLibraryName(runtimeClassName);
+        String bootstrapDispatchClassName = bootstrapDispatchClassName(runtimeClassName);
         byte[] runtimeClass = generate(template, runtimeClassName, "/" + nativeResourceName, nativeRequired,
                 antiDebug, antiVm, licenseHash, integrityResourceName, integrityHash, SELF_HASH_TOKEN,
                 runtimeApiNames, bridgeClassName, bridgeMethodName, bridgeKeyIntMethodName,
@@ -112,6 +114,10 @@ final class RuntimeClassGenerator {
         classes.put(runtimeClassName + ".class", runtimeClass);
         classes.put(bridgeClassName + ".class",
                 generate(NATIVE_BRIDGE_TEMPLATE, bridgeClassName, null, false,
+                        false, false, 0, "", 0, SELF_HASH_TOKEN, Map.of(), bridgeClassName, bridgeMethodName,
+                        bridgeKeyIntMethodName, bridgeKeyLongMethodName, nativeLibraryName));
+        classes.put(bootstrapDispatchClassName + ".class",
+                generate(BOOTSTRAP_DISPATCH_TEMPLATE, bootstrapDispatchClassName, null, false,
                         false, false, 0, "", 0, SELF_HASH_TOKEN, Map.of(), bridgeClassName, bridgeMethodName,
                         bridgeKeyIntMethodName, bridgeKeyLongMethodName, nativeLibraryName));
         return classes;
@@ -162,7 +168,36 @@ final class RuntimeClassGenerator {
         byte[] secret = VmPayloadResources.nativeSecret(plan, seed);
         System.arraycopy(secret, 0, patched, offset, secret.length);
         patchNativeBridgeName(patched, bridgeClassName(plan.runtimeClassName()));
+        patchNativeInternalDllName(patched, plan, seed);
         return patched;
+    }
+
+    private static void patchNativeInternalDllName(byte[] patched, NamingPlan plan, long seed) {
+        byte[] marker = "sushuo1337_vm.dll".getBytes(StandardCharsets.ISO_8859_1);
+        int from = 0;
+        int count = 0;
+        while (from < patched.length) {
+            int offset = indexOf(patched, marker, from);
+            if (offset < 0) {
+                break;
+            }
+            byte[] replacement = internalDllAlias(plan, seed, count).getBytes(StandardCharsets.ISO_8859_1);
+            System.arraycopy(replacement, 0, patched, offset, marker.length);
+            from = offset + marker.length;
+            count++;
+        }
+    }
+
+    private static String internalDllAlias(NamingPlan plan, long seed, int ordinal) {
+        int a = mix((int) seed ^ plan.runtimeClassName().hashCode() ^ 0x444C4C41 ^ ordinal);
+        int b = mix((int) (seed >>> 32) ^ plan.nativeResourceName().hashCode() ^ 0x4E414D45 ^ ordinal * 0x45D9F3B);
+        String body = "j" + Integer.toUnsignedString(a, 36) + Integer.toUnsignedString(b, 36);
+        if (body.length() < 13) {
+            body = (body + "x6k9m2p4q7r8s").substring(0, 13);
+        } else if (body.length() > 13) {
+            body = body.substring(0, 13);
+        }
+        return body + ".dll";
     }
 
     private static void patchNativeBridgeName(byte[] patched, String bridgeName) throws IOException {
@@ -170,20 +205,38 @@ final class RuntimeClassGenerator {
         if (replacement.length != NATIVE_BRIDGE_MARKER.length) {
             throw new IOException("Native bridge marker length mismatch: " + bridgeName);
         }
-        int count = 0;
-        int from = 0;
-        while (from < patched.length) {
-            int offset = indexOf(patched, NATIVE_BRIDGE_MARKER, from);
-            if (offset < 0) {
-                break;
-            }
-            System.arraycopy(replacement, 0, patched, offset, replacement.length);
-            count++;
-            from = offset + replacement.length;
-        }
+        int count = patchAll(patched, NATIVE_BRIDGE_MARKER, replacement);
+        count += patchAll(patched, bridgeNameEncoded(NATIVE_BRIDGE_MARKER), bridgeNameEncoded(replacement));
         if (count == 0) {
             throw new IOException("Native bridge marker is missing. Rebuild native/sushuo1337_vm.c.");
         }
+    }
+
+    private static int patchAll(byte[] data, byte[] marker, byte[] replacement) {
+        int count = 0;
+        int from = 0;
+        while (from < data.length) {
+            int offset = indexOf(data, marker, from);
+            if (offset < 0) {
+                break;
+            }
+            System.arraycopy(replacement, 0, data, offset, replacement.length);
+            count++;
+            from = offset + replacement.length;
+        }
+        return count;
+    }
+
+    private static byte[] bridgeNameEncoded(byte[] plain) {
+        byte[] encoded = plain.clone();
+        for (int i = 0; i < encoded.length; i++) {
+            encoded[i] = (byte) (encoded[i] ^ bridgeNameMask(i));
+        }
+        return encoded;
+    }
+
+    private static int bridgeNameMask(int index) {
+        return 0xA7 ^ ((index * 0x3D + 0x5B) & 0xFF);
     }
 
     private static int indexOf(byte[] data, byte[] needle) {
@@ -211,9 +264,13 @@ final class RuntimeClassGenerator {
                 ^ Integer.rotateLeft(plan.runtimeClassName().hashCode(), 7)
                 ^ raw.length ^ payload.length ^ 0x4E415456);
         int nonce = mix(key ^ resource.hashCode() ^ 0x5A17C0DE);
-        int keyTag = key ^ resource.hashCode() ^ runtime.hashCode() ^ NATIVE_MAGIC;
+        int resourceHash = resource.hashCode();
+        int runtimeHash = runtime.hashCode();
         int state = nativeState(key, nonce, resource, runtime, raw.length, payload.length);
         byte[] encoded = payload.clone();
+        int totalLength = 28 + encoded.length;
+        int format = nativeFormat(resourceHash, runtimeHash, totalLength);
+        int keyTag = key ^ resourceHash ^ runtimeHash ^ format;
         for (int i = 0; i < encoded.length; i++) {
             state = nativeStream(state, i);
             encoded[i] = (byte) (encoded[i] ^ (state >>> 24));
@@ -221,16 +278,38 @@ final class RuntimeClassGenerator {
 
         CRC32 crc = new CRC32();
         crc.update(raw);
-        ByteBuffer buffer = ByteBuffer.allocate(28 + encoded.length).order(ByteOrder.BIG_ENDIAN);
-        buffer.putInt(NATIVE_MAGIC);
-        buffer.putInt(NATIVE_VERSION);
-        buffer.putInt(nonce);
-        buffer.putInt(keyTag);
-        buffer.putInt(raw.length);
-        buffer.putInt(encoded.length);
-        buffer.putInt((int) crc.getValue());
+        ByteBuffer buffer = ByteBuffer.allocate(totalLength).order(ByteOrder.BIG_ENDIAN);
+        buffer.putInt(format ^ nativeHeaderMask(resourceHash, runtimeHash, totalLength, 0));
+        buffer.putInt(NATIVE_VERSION ^ nativeHeaderMask(resourceHash, runtimeHash, totalLength, 1));
+        buffer.putInt(nonce ^ nativeHeaderMask(resourceHash, runtimeHash, totalLength, 2));
+        buffer.putInt(keyTag ^ nativeHeaderMask(resourceHash, runtimeHash, totalLength, 3));
+        buffer.putInt(raw.length ^ nativeHeaderMask(resourceHash, runtimeHash, totalLength, 4));
+        buffer.putInt(encoded.length ^ nativeHeaderMask(resourceHash, runtimeHash, totalLength, 5));
+        buffer.putInt((int) crc.getValue() ^ nativeHeaderMask(resourceHash, runtimeHash, totalLength, 6));
         buffer.put(encoded);
         return buffer.array();
+    }
+
+    private static int nativeFormat(int resourceHash, int runtimeHash, int totalLength) {
+        int value = 0x4E464D33 ^ resourceHash;
+        value ^= Integer.rotateLeft(runtimeHash, 7);
+        value ^= Integer.rotateLeft(totalLength * 0x27D4EB2D, 11);
+        value ^= Integer.rotateLeft(resourceHash * 0x45D9F3B, 3);
+        return mix(value ^ 0x7F4A7C15);
+    }
+
+    private static int nativeHeaderMask(int resourceHash, int runtimeHash, int totalLength, int slot) {
+        int value = 0x4E485244 ^ resourceHash;
+        value ^= Integer.rotateLeft(runtimeHash, (slot * 5 + 7) & 31);
+        value ^= Integer.rotateLeft(totalLength * 0x45D9F3B, (slot + 3) & 31);
+        value ^= slot * 0x9E3779B9;
+        value = Integer.rotateLeft(value + 0x7F4A7C15, 9);
+        value ^= value >>> 16;
+        value *= 0x85EBCA6B;
+        value ^= value >>> 13;
+        value *= 0xC2B2AE35;
+        value ^= value >>> 16;
+        return value == 0 ? 0x2468ACE1 : value;
     }
 
     private static byte[] deflate(byte[] raw) throws IOException {
@@ -321,7 +400,7 @@ final class RuntimeClassGenerator {
                                    Map<RuntimeApiObfuscator.MemberSig, String> runtimeApiNames) throws IOException {
         return generate(template, targetName, nativeResourceName, nativeRequired, antiDebug, antiVm,
                 licenseHash, integrityResourceName, integrityHash, selfHashValue,
-                runtimeApiNames, NATIVE_BRIDGE, "_n", "_ki", "_kl", "sushuo1337_vm");
+                runtimeApiNames, NATIVE_BRIDGE, "_nx", "_ki", "_kl", "sushuo1337_vm");
     }
 
     private static byte[] generate(String template, String targetName,
@@ -351,6 +430,9 @@ final class RuntimeClassGenerator {
                     if (NATIVE_BRIDGE_TEMPLATE.equals(internalName)) {
                         return NATIVE_BRIDGE_TEMPLATE.equals(template) ? targetName : bridgeClassName;
                     }
+                    if (BOOTSTRAP_DISPATCH_TEMPLATE.equals(internalName)) {
+                        return BOOTSTRAP_DISPATCH_TEMPLATE.equals(template) ? targetName : internalName;
+                    }
                     return internalName;
                 }
             }), ClassReader.SKIP_DEBUG);
@@ -359,10 +441,15 @@ final class RuntimeClassGenerator {
                         licenseHash, integrityResourceName, integrityHash, selfHashValue);
                 rewriteNativeBridgeCalls(remapped, bridgeClassName, bridgeMethodName,
                         bridgeKeyIntMethodName, bridgeKeyLongMethodName);
+                obfuscateRuntimeStringLiterals(remapped, targetName);
                 RuntimeApiObfuscator.rewriteClassNode(remapped, targetName, runtimeApiNames, true);
+                hideBootstrapApis(remapped, runtimeApiNames);
                 obfuscateRuntimePrivateMembers(remapped, targetName);
             } else if (NATIVE_BRIDGE_TEMPLATE.equals(template)) {
                 patchNativeBridgeClass(remapped, bridgeMethodName, bridgeKeyIntMethodName, bridgeKeyLongMethodName);
+            } else if (BOOTSTRAP_DISPATCH_TEMPLATE.equals(template)) {
+                renameBootstrapDispatchApi(remapped, targetName);
+                obfuscateRuntimePrivateMembers(remapped, targetName);
             }
             ClassWriter writer = new ClassWriter(0);
             remapped.accept(writer);
@@ -378,8 +465,8 @@ final class RuntimeClassGenerator {
                  instruction = instruction.getNext()) {
                 if (instruction instanceof MethodInsnNode call
                         && bridgeClassName.equals(call.owner)) {
-                    if (call.name.equals("_n")
-                            && call.desc.equals("([Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;")) {
+                    if (call.name.equals("_nx")
+                            && call.desc.equals("(Ljava/lang/Object;Ljava/lang/Object;I)Ljava/lang/Object;")) {
                         call.name = bridgeMethodName;
                     } else if (call.name.equals("_ki")
                             && call.desc.equals("(ILjava/lang/Class;Ljava/lang/String;III)I")) {
@@ -390,6 +477,30 @@ final class RuntimeClassGenerator {
                     }
                 }
             }
+        }
+    }
+
+    private static void hideBootstrapApis(
+            ClassNode classNode,
+            Map<RuntimeApiObfuscator.MemberSig, String> runtimeApiNames
+    ) {
+        if (runtimeApiNames.isEmpty()) {
+            return;
+        }
+        Set<RuntimeApiObfuscator.MemberSig> bootstraps = new HashSet<>();
+        for (Map.Entry<RuntimeApiObfuscator.MemberSig, String> entry : runtimeApiNames.entrySet()) {
+            RuntimeApiObfuscator.MemberSig signature = entry.getKey();
+            if (signature.desc().endsWith(")Ljava/lang/invoke/CallSite;")) {
+                bootstraps.add(new RuntimeApiObfuscator.MemberSig(entry.getValue(), signature.desc()));
+            }
+        }
+        for (MethodNode method : classNode.methods) {
+            if (!bootstraps.contains(new RuntimeApiObfuscator.MemberSig(method.name, method.desc))) {
+                continue;
+            }
+            method.access = (method.access
+                    & ~(Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED | Opcodes.ACC_PRIVATE))
+                    | Opcodes.ACC_SYNTHETIC;
         }
     }
 
@@ -411,8 +522,8 @@ final class RuntimeClassGenerator {
             }
         }
         for (MethodNode method : classNode.methods) {
-            if (method.name.equals("_n")
-                    && method.desc.equals("([Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;")) {
+            if (method.name.equals("_nx")
+                    && method.desc.equals("(Ljava/lang/Object;Ljava/lang/Object;I)Ljava/lang/Object;")) {
                 method.name = bridgeMethodName;
             } else if (method.name.equals("_ki")
                     && method.desc.equals("(ILjava/lang/Class;Ljava/lang/String;III)I")) {
@@ -436,6 +547,18 @@ final class RuntimeClassGenerator {
                 }
             }
         }
+    }
+
+    private static void renameBootstrapDispatchApi(ClassNode classNode, String targetName) {
+        String targetMethod = bootstrapDispatchMethodName(targetName);
+        for (MethodNode method : classNode.methods) {
+            if (method.name.equals("_bd")
+                    && method.desc.equals("([Ljava/lang/Object;ILjava/lang/String;I)Ljava/lang/invoke/CallSite;")) {
+                method.name = targetMethod;
+                return;
+            }
+        }
+        throw new IllegalStateException("Bootstrap dispatch template is missing its entry method");
     }
 
     private static String bridgeClassName(String runtimeClassName) {
@@ -462,6 +585,24 @@ final class RuntimeClassGenerator {
         return prefix + suffix;
     }
 
+    static String bootstrapDispatchClassName(String runtimeClassName) {
+        int slash = runtimeClassName.lastIndexOf('/');
+        String prefix = slash < 0 ? "" : runtimeClassName.substring(0, slash + 1);
+        int a = mix(runtimeClassName.hashCode() ^ 0x44535043);
+        int b = mix(a ^ Integer.rotateLeft(runtimeClassName.length() * 0x27D4EB2D, 11));
+        return prefix + "D"
+                + Integer.toUnsignedString(a, 36)
+                + Integer.toUnsignedString(b, 36);
+    }
+
+    static String bootstrapDispatchMethodName(String dispatchClassName) {
+        int a = mix(dispatchClassName.hashCode() ^ 0x44534D54);
+        int b = mix(a ^ Integer.rotateLeft(dispatchClassName.length() * 0x45D9F3B, 7));
+        return "_"
+                + Integer.toUnsignedString(a, 36)
+                + Integer.toUnsignedString(b, 36);
+    }
+
     private static String nativeLibraryName(String runtimeClassName) {
         int a = mix(runtimeClassName.hashCode() ^ 0x4E4C4942);
         int b = mix(a ^ Integer.rotateLeft(runtimeClassName.length() * 0x27D4EB2D, 9));
@@ -477,6 +618,45 @@ final class RuntimeClassGenerator {
                 + Integer.toUnsignedString(a, 36)
                 + "."
                 + Integer.toUnsignedString(b, 36);
+    }
+
+    private static void obfuscateRuntimeStringLiterals(ClassNode classNode, String targetName) {
+        int ordinal = 0;
+        for (MethodNode method : classNode.methods) {
+            if (method.instructions == null
+                    || method.name.equals("_d") && method.desc.equals("(Ljava/lang/String;I)Ljava/lang/String;")) {
+                continue;
+            }
+            boolean changed = false;
+            for (AbstractInsnNode instruction = method.instructions.getFirst(); instruction != null; ) {
+                AbstractInsnNode next = instruction.getNext();
+                if (!(instruction instanceof LdcInsnNode ldc) || !(ldc.cst instanceof String value) || value.isEmpty() || value.startsWith(SELF_HASH_PREFIX)) {
+                    instruction = next;
+                    continue;
+                }
+                int key = mix(targetName.hashCode()
+                        ^ Integer.rotateLeft(value.hashCode(), ordinal & 15)
+                        ^ ordinal * 0x45D9F3B
+                        ^ method.name.hashCode()
+                        ^ method.desc.hashCode());
+                if (key == 0) {
+                    key = 0x13579BDF;
+                }
+                InsnList replacement = new InsnList();
+                replacement.add(new LdcInsnNode(StringCipher.encode(value, key)));
+                replacement.add(new LdcInsnNode(key));
+                replacement.add(new MethodInsnNode(Opcodes.INVOKESTATIC, classNode.name, "_d",
+                        "(Ljava/lang/String;I)Ljava/lang/String;", false));
+                method.instructions.insert(instruction, replacement);
+                method.instructions.remove(instruction);
+                changed = true;
+                ordinal++;
+                instruction = next;
+            }
+            if (changed) {
+                method.maxStack = Math.max(method.maxStack + 4, 16);
+            }
+        }
     }
 
     private static String runtimeEnvName(String nativeResourceName, int salt) {
@@ -659,6 +839,9 @@ final class RuntimeClassGenerator {
 
     private static boolean isRuntimePrivateMethodRenameCandidate(MethodNode method) {
         if ((method.access & Opcodes.ACC_PRIVATE) == 0) {
+            return false;
+        }
+        if (method.name.startsWith("_rc") || method.name.equals("ownerRuntimeClass")) {
             return false;
         }
         return !method.name.equals("<init>") && !method.name.equals("<clinit>");

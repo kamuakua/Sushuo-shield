@@ -218,20 +218,21 @@ final class NamePlanner implements Opcodes {
     }
 
     private static String nextNativeResourceName(String prefix, Random random, ObfuscationOptions options) {
-        if (!options.minecraftMode() && switch (options.mode()) {
-            case JNIC, VMP, STACKED -> true;
-            default -> false;
-        }) {
-            return prefix + "r/"
-                    + Long.toUnsignedString(random.nextLong(), 36)
-                    + "/"
-                    + Long.toUnsignedString(random.nextLong(), 36)
-                    + ".bin";
-        }
-        return prefix + "native/windows-x64/N"
-                + Long.toUnsignedString(random.nextLong(), 36)
-                + Long.toUnsignedString(random.nextLong(), 36)
-                + ".bin";
+        int a = mix((int) random.nextLong()
+                ^ options.mode().ordinal() * 0x45D9F3B
+                ^ (options.minecraftMode() ? 0x4D435246 : 0x4E415456));
+        int b = mix((int) (random.nextLong() >>> 32)
+                ^ Integer.rotateLeft(a, 9)
+                ^ prefix.hashCode());
+        int c = mix((int) random.nextLong()
+                ^ Integer.rotateLeft(b, 13)
+                ^ options.namePrefix().length() * 0x27D4EB2D);
+        int selector = mix(a
+                ^ Integer.rotateLeft(b, 7)
+                ^ Integer.rotateLeft(c, 19)
+                ^ options.mode().ordinal() * 0x9E3779B9
+                ^ (options.minecraftMode() ? 0x13572468 : 0x2468ACE1));
+        return VmPayloadResources.distributedResourceName(prefix, a, b, c, selector);
     }
 
     private static int mix(int value) {

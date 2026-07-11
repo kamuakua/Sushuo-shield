@@ -3,12 +3,13 @@ package biz.sushuo.shield.runtime;
 public final class NativeOnlyRuntime {
     private static volatile int state = 0x13572468;
     private static volatile int nativeLoadState;
-    private static final int NATIVE_MAGIC = 0x53534E32;
-    private static final int NATIVE_VERSION = 2;
+    private static final int NATIVE_VERSION = 3;
     private static final int FLAG_NATIVE_KEY = 1;
     private static final int CONST_KIND_STRING = 1;
     private static final int CONST_KIND_INT = 2;
     private static final int CONST_KIND_LONG = 3;
+    private static final int CONST_KIND_FLOAT = 4;
+    private static final int CONST_KIND_DOUBLE = 5;
     private static final boolean ANTI_DEBUG = Boolean.parseBoolean("%%SUSHUO_ANTI_DEBUG%%");
     private static final boolean ANTI_VM = Boolean.parseBoolean("%%SUSHUO_ANTI_VM%%");
     private static final int LICENSE_HASH = parseOptionInt("%%SUSHUO_LICENSE_HASH%%");
@@ -21,12 +22,45 @@ public final class NativeOnlyRuntime {
     private NativeOnlyRuntime() {
     }
 
-    public static Object _v(Object[] program, Object[] args) {
+
+    public static Object _vx(Object programBox, Object argsBox, int token) {
         _o();
+        Object[] program = vmArray(programBox, token);
+        Object[] args = vmArray(argsBox, token ^ 0x56584142);
+        if (token != vmCallToken(program, args.length)) {
+            state ^= token;
+            throw new IllegalStateException("x");
+        }
         if (!nativeReady()) {
             throw new IllegalStateException("Native VM is required but unavailable.");
         }
-        return NativeBridge._n(program, args);
+        return NativeBridge._nx(program, args, token);
+    }
+
+    private static Object[] vmArray(Object box, int token) {
+        if (box instanceof Object[] array) {
+            return array;
+        }
+        state ^= token;
+        throw new IllegalStateException("x");
+    }
+
+    private static int vmCallToken(Object[] program, int localSlots) {
+        int value = 0x56584D31;
+        value ^= vmProgramId(program) * 0x45D9F3B;
+        value ^= Integer.rotateLeft(localSlots * 0x27D4EB2D, 7);
+        return mix(value);
+    }
+
+    private static int vmProgramId(Object[] program) {
+        if (program == null || program.length < 7 || !(program[0] instanceof Integer marker)) {
+            return 0;
+        }
+        int index = marker.intValue() == 0x53535234 ? 8 : marker.intValue() == 0x53535632 ? 6 : -1;
+        if (index < 0 || index >= program.length || !(program[index] instanceof Integer id)) {
+            return 0;
+        }
+        return id.intValue();
     }
 
     public static String _d(String value, int key) {
@@ -64,14 +98,15 @@ public final class NativeOnlyRuntime {
                                                 int key,
                                                 int site,
                                                 int salt,
-                                                int flags) {
-        String owner = lookup.lookupClass().getName();
-        int decryptKey = (flags & FLAG_NATIVE_KEY) != 0
-                ? nativeIntKey(CONST_KIND_STRING, lookup.lookupClass(), name, key, site, salt)
-                : dynamicStringKey(key, site, salt, owner, name);
-        String result = _d(value, decryptKey);
-        return new java.lang.invoke.ConstantCallSite(
-                java.lang.invoke.MethodHandles.constant(type.returnType(), result).asType(type));
+                                                int flags) throws java.lang.NoSuchMethodException, java.lang.IllegalAccessException {
+        Class<?> owner = lookup.lookupClass();
+        constantCallSiteGuard(owner);
+        java.lang.invoke.MethodHandle target = java.lang.invoke.MethodHandles.lookup().findStatic(
+                ownerRuntimeClass(), "_rcs",
+                java.lang.invoke.MethodType.methodType(String.class, Class.class, String.class, String.class,
+                        int.class, int.class, int.class, int.class));
+        target = java.lang.invoke.MethodHandles.insertArguments(target, 0, owner, name, value, key, site, salt, flags);
+        return new java.lang.invoke.MutableCallSite(target.asType(type));
     }
 
     public static java.lang.invoke.CallSite _ci(java.lang.invoke.MethodHandles.Lookup lookup,
@@ -81,14 +116,15 @@ public final class NativeOnlyRuntime {
                                                 int key,
                                                 int site,
                                                 int salt,
-                                                int flags) {
-        String owner = lookup.lookupClass().getName();
-        int decryptKey = (flags & FLAG_NATIVE_KEY) != 0
-                ? nativeIntKey(CONST_KIND_INT, lookup.lookupClass(), name, key, site, salt)
-                : dynamicIntKey(key, site, salt, owner, name);
-        int result = encrypted ^ decryptKey;
-        return new java.lang.invoke.ConstantCallSite(
-                java.lang.invoke.MethodHandles.constant(type.returnType(), result).asType(type));
+                                                int flags) throws java.lang.NoSuchMethodException, java.lang.IllegalAccessException {
+        Class<?> owner = lookup.lookupClass();
+        constantCallSiteGuard(owner);
+        java.lang.invoke.MethodHandle target = java.lang.invoke.MethodHandles.lookup().findStatic(
+                ownerRuntimeClass(), "_rci",
+                java.lang.invoke.MethodType.methodType(int.class, int.class, Class.class, String.class,
+                        int.class, int.class, int.class, int.class, int.class));
+        target = java.lang.invoke.MethodHandles.insertArguments(target, 0, CONST_KIND_INT, owner, name, encrypted, key, site, salt, flags);
+        return new java.lang.invoke.MutableCallSite(target.asType(type));
     }
 
     public static java.lang.invoke.CallSite _cl(java.lang.invoke.MethodHandles.Lookup lookup,
@@ -98,14 +134,325 @@ public final class NativeOnlyRuntime {
                                                 long key,
                                                 int site,
                                                 int salt,
-                                                int flags) {
-        String owner = lookup.lookupClass().getName();
+                                                int flags) throws java.lang.NoSuchMethodException, java.lang.IllegalAccessException {
+        Class<?> owner = lookup.lookupClass();
+        constantCallSiteGuard(owner);
+        java.lang.invoke.MethodHandle target = java.lang.invoke.MethodHandles.lookup().findStatic(
+                ownerRuntimeClass(), "_rcl",
+                java.lang.invoke.MethodType.methodType(long.class, int.class, Class.class, String.class,
+                        long.class, long.class, int.class, int.class, int.class));
+        target = java.lang.invoke.MethodHandles.insertArguments(target, 0, CONST_KIND_LONG, owner, name, encrypted, key, site, salt, flags);
+        return new java.lang.invoke.MutableCallSite(target.asType(type));
+    }
+
+    public static java.lang.invoke.CallSite _cf(java.lang.invoke.MethodHandles.Lookup lookup,
+                                                String name,
+                                                java.lang.invoke.MethodType type,
+                                                int encrypted,
+                                                int key,
+                                                int site,
+                                                int salt,
+                                                int flags) throws java.lang.NoSuchMethodException, java.lang.IllegalAccessException {
+        Class<?> owner = lookup.lookupClass();
+        constantCallSiteGuard(owner);
+        java.lang.invoke.MethodHandle target = java.lang.invoke.MethodHandles.lookup().findStatic(
+                ownerRuntimeClass(), "_rcf",
+                java.lang.invoke.MethodType.methodType(float.class, Class.class, String.class,
+                        int.class, int.class, int.class, int.class, int.class));
+        target = java.lang.invoke.MethodHandles.insertArguments(target, 0, owner, name, encrypted, key, site, salt, flags);
+        return new java.lang.invoke.MutableCallSite(target.asType(type));
+    }
+
+    public static java.lang.invoke.CallSite _cd(java.lang.invoke.MethodHandles.Lookup lookup,
+                                                String name,
+                                                java.lang.invoke.MethodType type,
+                                                long encrypted,
+                                                long key,
+                                                int site,
+                                                int salt,
+                                                int flags) throws java.lang.NoSuchMethodException, java.lang.IllegalAccessException {
+        Class<?> owner = lookup.lookupClass();
+        constantCallSiteGuard(owner);
+        java.lang.invoke.MethodHandle target = java.lang.invoke.MethodHandles.lookup().findStatic(
+                ownerRuntimeClass(), "_rcd",
+                java.lang.invoke.MethodType.methodType(double.class, Class.class, String.class,
+                        long.class, long.class, int.class, int.class, int.class));
+        target = java.lang.invoke.MethodHandles.insertArguments(target, 0, owner, name, encrypted, key, site, salt, flags);
+        return new java.lang.invoke.MutableCallSite(target.asType(type));
+    }
+
+    public static java.lang.invoke.CallSite _rm(java.lang.invoke.MethodHandles.Lookup lookup,
+                                                String name,
+                                                java.lang.invoke.MethodType type,
+                                                String part0,
+                                                String part1,
+                                                String part2,
+                                                int seed,
+                                                int salt,
+                                                int flags,
+                                                int check) throws java.lang.NoSuchMethodException, java.lang.IllegalAccessException {
+        Class<?> caller = lookup.lookupClass();
+        constantCallSiteGuard(caller);
+        Object[] meta = _rcmp(caller, name, type, part0, part1, part2, seed, salt, flags, check);
+        String owner = (String) meta[0];
+        String targetName = (String) meta[1];
+        String descriptor = (String) meta[2];
+        int invokeOpcode = (Integer) meta[3];
+        java.lang.invoke.MethodHandle target;
+        try {
+            target = _rcmr(type, owner, targetName, descriptor, invokeOpcode);
+        } catch (Throwable ignored) {
+            target = _rcmf(type, owner, targetName, descriptor, invokeOpcode);
+        }
+        return new java.lang.invoke.MutableCallSite(target.asType(type));
+    }
+
+    public static java.lang.invoke.CallSite _rv(java.lang.invoke.MethodHandles.Lookup lookup,
+                                                String name,
+                                                java.lang.invoke.MethodType type,
+                                                java.lang.invoke.MethodHandle target,
+                                                int seed,
+                                                int salt,
+                                                int check) throws java.lang.NoSuchMethodException, java.lang.IllegalAccessException {
+        Class<?> caller = lookup.lookupClass();
+        constantCallSiteGuard(caller);
+        java.lang.invoke.MethodType expected = java.lang.invoke.MethodType.methodType(
+                Object.class, Object.class, Object.class, int.class);
+        int key = vmEntryIndyKey(seed, salt, caller, name, type);
+        if (check != vmEntryIndyCheck(key, seed, salt)
+                || target == null
+                || !target.type().equals(expected)
+                || type.parameterCount() != 3
+                || type.returnType() != Object.class) {
+            state ^= key;
+            throw new IllegalStateException("x");
+        }
+        return new java.lang.invoke.MutableCallSite(target.asType(type));
+    }
+
+    private static int vmEntryIndyKey(int seed, int salt, Class<?> caller,
+                                      String name, java.lang.invoke.MethodType type) {
+        String owner = caller.getName().replace('.', '/');
+        String descriptor = type.toMethodDescriptorString();
+        int value = mix(seed ^ owner.hashCode() ^ 0x56524931);
+        value ^= Integer.rotateLeft(name.hashCode(), 7);
+        value ^= Integer.rotateLeft(descriptor.hashCode(), 13);
+        value = mix(value ^ salt ^ owner.length() * 0x45D9F3B);
+        value ^= Integer.rotateLeft(descriptor.length() * 0x27D4EB2D, 9);
+        return mix(value ^ 0x56524932);
+    }
+
+    private static int vmEntryIndyCheck(int key, int seed, int salt) {
+        return mix(key ^ seed ^ Integer.rotateLeft(salt, 11) ^ 0x56524348);
+    }
+
+    private static Object[] _rcmp(Class<?> caller,
+                                  String name,
+                                  java.lang.invoke.MethodType type,
+                                  String part0,
+                                  String part1,
+                                  String part2,
+                                  int seed,
+                                  int salt,
+                                  int flags,
+                                  int check) {
+        String ownerName = caller.getName().replace('.', '/');
+        String descriptor = type.toMethodDescriptorString();
+        int key = methodMetaKey(seed, salt, ownerName, name, descriptor);
+        byte[][] shards = new byte[][]{hexToBytes(part0), hexToBytes(part1), hexToBytes(part2)};
+        int length = shards[0].length + shards[1].length + shards[2].length;
+        byte[] encrypted = new byte[length];
+        int[] positions = new int[3];
+        int shift = key & 7;
+        for (int i = 0; i < encrypted.length; i++) {
+            int lane = (i + shift) % 3;
+            encrypted[i] = shards[lane][positions[lane]++];
+        }
+        int local = mix(key ^ encrypted.length ^ 0x4D43444D);
+        for (int i = 0; i < encrypted.length; i++) {
+            local = methodMetaStream(local, i);
+            encrypted[i] = (byte) (encrypted[i] ^ (local >>> 24));
+        }
+        int expected = checksum(encrypted) ^ mix(key ^ Integer.rotateLeft(encrypted.length * 0x45D9F3B, 7) ^ 0x4348454B);
+        int invokeOpcode = flags ^ mix(key ^ 0x4F50434F);
+        if (check != expected || (invokeOpcode != 184 && invokeOpcode != 182 && invokeOpcode != 185)) {
+            state ^= key;
+            throw new IllegalStateException("x");
+        }
+        String clear = new String(encrypted, java.nio.charset.StandardCharsets.UTF_8);
+        int first = clear.indexOf('\u001f');
+        int second = first < 0 ? -1 : clear.indexOf('\u001f', first + 1);
+        if (first <= 0 || second <= first + 1 || second >= clear.length() - 1) {
+            state ^= key;
+            throw new IllegalStateException("x");
+        }
+        return new Object[]{clear.substring(0, first), clear.substring(first + 1, second),
+                clear.substring(second + 1), invokeOpcode};
+    }
+
+    private static byte[] hexToBytes(String value) {
+        int length = value.length();
+        if ((length & 1) != 0) {
+            throw new IllegalStateException("x");
+        }
+        byte[] out = new byte[length / 2];
+        for (int i = 0; i < out.length; i++) {
+            int high = Character.digit(value.charAt(i * 2), 16);
+            int low = Character.digit(value.charAt(i * 2 + 1), 16);
+            if (high < 0 || low < 0) {
+                throw new IllegalStateException("x");
+            }
+            out[i] = (byte) ((high << 4) | low);
+        }
+        return out;
+    }
+
+    private static int methodMetaKey(int seed, int salt, String owner, String name, String descriptor) {
+        int value = mix(seed ^ owner.hashCode() ^ 0x4D434B31);
+        value ^= Integer.rotateLeft(name.hashCode(), 7);
+        value ^= Integer.rotateLeft(descriptor.hashCode(), 13);
+        value = mix(value ^ salt ^ owner.length() * 0x45D9F3B);
+        value ^= Integer.rotateLeft(descriptor.length() * 0x27D4EB2D, 9);
+        return mix(value ^ 0x4D434B32);
+    }
+
+    private static int methodMetaStream(int local, int index) {
+        local ^= index * 0x9E3779B9;
+        local = Integer.rotateLeft(local + 0x7F4A7C15, 11);
+        local ^= local >>> 16;
+        local *= 0x85EBCA6B;
+        local ^= local >>> 13;
+        local *= 0xC2B2AE35;
+        local ^= local >>> 16;
+        return local == 0 ? 0x13579BDF : local;
+    }
+
+    private static int checksum(byte[] bytes) {
+        int value = 0x811C9DC5;
+        for (byte b : bytes) {
+            value ^= b & 0xFF;
+            value *= 0x01000193;
+            value = Integer.rotateLeft(value, 5) ^ 0x7F4A7C15;
+        }
+        return mix(value ^ bytes.length);
+    }
+
+    private static Class<?> ownerRuntimeClass() {
+        return NativeOnlyRuntime.class;
+    }
+
+    private static String _rcs(Class<?> owner, String name, String value, int key, int site, int salt, int flags) {
+        constantCallSiteGuard(owner);
+        String ownerName = owner.getName();
+        int decryptKey = (flags & FLAG_NATIVE_KEY) != 0
+                ? nativeIntKey(CONST_KIND_STRING, owner, name, key, site, salt)
+                : dynamicStringKey(key, site, salt, ownerName, name);
+        return _d(value, decryptKey);
+    }
+
+    private static int _rci(int kind, Class<?> owner, String name, int encrypted, int key, int site, int salt, int flags) {
+        constantCallSiteGuard(owner);
+        String ownerName = owner.getName();
+        int decryptKey = (flags & FLAG_NATIVE_KEY) != 0
+                ? nativeIntKey(kind, owner, name, key, site, salt)
+                : dynamicIntKey(key, site, salt, ownerName, name);
+        return encrypted ^ decryptKey;
+    }
+
+    private static long _rcl(int kind, Class<?> owner, String name, long encrypted, long key, int site, int salt, int flags) {
+        constantCallSiteGuard(owner);
+        String ownerName = owner.getName();
         long decryptKey = (flags & FLAG_NATIVE_KEY) != 0
-                ? nativeLongKey(CONST_KIND_LONG, lookup.lookupClass(), name, key, site, salt)
-                : dynamicLongKey(key, site, salt, owner, name);
-        long result = encrypted ^ decryptKey;
-        return new java.lang.invoke.ConstantCallSite(
-                java.lang.invoke.MethodHandles.constant(type.returnType(), result).asType(type));
+                ? nativeLongKey(kind, owner, name, key, site, salt)
+                : dynamicLongKey(key, site, salt, ownerName, name);
+        return encrypted ^ decryptKey;
+    }
+
+    private static float _rcf(Class<?> owner, String name, int encrypted, int key, int site, int salt, int flags) {
+        return Float.intBitsToFloat(_rci(CONST_KIND_FLOAT, owner, name, encrypted, key, site, salt, flags));
+    }
+
+    private static double _rcd(Class<?> owner, String name, long encrypted, long key, int site, int salt, int flags) {
+        return Double.longBitsToDouble(_rcl(CONST_KIND_DOUBLE, owner, name, encrypted, key, site, salt, flags));
+    }
+
+    private static java.lang.invoke.MethodHandle _rcmr(java.lang.invoke.MethodType callType,
+                                                       String owner,
+                                                       String name,
+                                                       String descriptor,
+                                                       int flags) throws ReflectiveOperationException {
+        Class<?> ownerClass = classForInternal(owner);
+        Class<?>[] parameterTypes = parameterTypes(descriptor);
+        Class<?> returnType = returnType(descriptor);
+        java.lang.invoke.MethodType methodType = java.lang.invoke.MethodType.methodType(returnType, parameterTypes);
+        java.lang.invoke.MethodHandles.Lookup lookup = java.lang.invoke.MethodHandles.privateLookupIn(
+                ownerClass, java.lang.invoke.MethodHandles.lookup());
+        java.lang.invoke.MethodHandle target;
+        if (flags == 184) {
+            target = lookup.findStatic(ownerClass, name, methodType);
+        } else if (flags == 182 || flags == 185) {
+            target = lookup.findVirtual(ownerClass, name, methodType);
+        } else {
+            throw new NoSuchMethodException(name);
+        }
+        return _rcmw(target.asType(callType));
+    }
+
+    private static java.lang.invoke.MethodHandle _rcmf(java.lang.invoke.MethodType callType,
+                                                       String owner,
+                                                       String name,
+                                                       String descriptor,
+                                                       int flags) throws java.lang.NoSuchMethodException, java.lang.IllegalAccessException {
+        java.lang.invoke.MethodHandle target;
+        if (flags == 184) {
+            target = java.lang.invoke.MethodHandles.lookup().findStatic(
+                    ownerRuntimeClass(), "_rcms",
+                    java.lang.invoke.MethodType.methodType(Object.class,
+                            String.class, String.class, String.class, int.class, Object[].class));
+            target = java.lang.invoke.MethodHandles.insertArguments(target, 0, owner, name, descriptor, flags);
+            target = target.asCollector(Object[].class, callType.parameterCount());
+        } else {
+            target = java.lang.invoke.MethodHandles.lookup().findStatic(
+                    ownerRuntimeClass(), "_rcmi",
+                    java.lang.invoke.MethodType.methodType(Object.class,
+                            String.class, String.class, String.class, int.class, Object.class, Object[].class));
+            target = java.lang.invoke.MethodHandles.insertArguments(target, 0, owner, name, descriptor, flags);
+            target = target.asCollector(Object[].class, Math.max(0, callType.parameterCount() - 1));
+        }
+        return target.asType(callType);
+    }
+
+    private static java.lang.invoke.MethodHandle _rcmw(java.lang.invoke.MethodHandle target)
+            throws java.lang.NoSuchMethodException, java.lang.IllegalAccessException {
+        java.lang.invoke.MethodHandle guard = java.lang.invoke.MethodHandles.lookup().findStatic(
+                ownerRuntimeClass(), "_rcmg", java.lang.invoke.MethodType.methodType(void.class));
+        return java.lang.invoke.MethodHandles.foldArguments(target, guard);
+    }
+
+    private static void _rcmg() {
+        _o();
+    }
+
+    private static Object _rcms(String owner, String name, String descriptor, int flags, Object[] args) {
+        _o();
+        return _rcmv(owner, name, descriptor, args, null, flags);
+    }
+
+    private static Object _rcmi(String owner, String name, String descriptor, int flags, Object target, Object[] args) {
+        _o();
+        return _rcmv(owner, name, descriptor, args, target, flags);
+    }
+
+    private static Object _rcmv(String owner, String name, String descriptor, Object[] args, Object target, int invokeOpcode) {
+        try {
+            Class<?> type = classForInternal(owner);
+            Class<?>[] parameterTypes = parameterTypes(descriptor);
+            java.lang.reflect.Method method = findMethod(type, name, parameterTypes);
+            method.setAccessible(true);
+            return method.invoke(invokeOpcode == 184 ? null : target, coerceArgs(parameterTypes, args));
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException(ex);
+        }
     }
 
     private static int nativeIntKey(int kind, Class<?> owner, String name, int key, int site, int salt) {
@@ -407,12 +754,16 @@ public final class NativeOnlyRuntime {
         try {
             Class<?> type = classForInternal(owner);
             Class<?>[] parameterTypes = parameterTypes(descriptor);
-            java.lang.reflect.Method method = findMethod(type, name, parameterTypes);
-            method.setAccessible(true);
-            Object value = method.invoke(invokeOpcode == 184 ? null : target, coerceArgs(parameterTypes, args));
             Class<?> returnType = returnType(descriptor);
+            java.lang.invoke.MethodType methodType = java.lang.invoke.MethodType.methodType(returnType, parameterTypes);
+            java.lang.invoke.MethodHandles.Lookup lookup = java.lang.invoke.MethodHandles.privateLookupIn(
+                    type, java.lang.invoke.MethodHandles.lookup());
+            java.lang.invoke.MethodHandle handle = invokeOpcode == 184
+                    ? lookup.findStatic(type, name, methodType)
+                    : lookup.findVirtual(type, name, methodType).bindTo(target);
+            Object value = handle.invokeWithArguments(coerceArgs(parameterTypes, args));
             return returnType == Void.TYPE ? Void.TYPE : normalizeReturn(returnType, value);
-        } catch (ReflectiveOperationException ex) {
+        } catch (Throwable ex) {
             throw new IllegalStateException(ex);
         }
     }
@@ -555,15 +906,25 @@ public final class NativeOnlyRuntime {
 
     public static void _gh(int ownerHash, int methodHash) {
         StackTraceElement[] trace = Thread.currentThread().getStackTrace();
-        for (int i = 0; i < trace.length - 1; i++) {
-            StackTraceElement current = trace[i];
-            StackTraceElement caller = trace[i + 1];
-            if (current.getClassName().hashCode() == ownerHash
-                    && caller.getClassName().hashCode() == ownerHash
-                    && caller.getMethodName().hashCode() == methodHash
-                    && !caller.getMethodName().equals(current.getMethodName())) {
-                return;
+        int ownerFrames = 0;
+        boolean hostFrame = false;
+        String firstOwnerMethod = null;
+        for (StackTraceElement frame : trace) {
+            if (frame.getClassName().hashCode() != ownerHash) {
+                continue;
             }
+            ownerFrames++;
+            if (firstOwnerMethod == null) {
+                firstOwnerMethod = frame.getMethodName();
+            } else if (!firstOwnerMethod.equals(frame.getMethodName())) {
+                ownerFrames++;
+            }
+            if (frame.getMethodName().hashCode() == methodHash) {
+                hostFrame = true;
+            }
+        }
+        if (ownerFrames >= 2 && hostFrame) {
+            return;
         }
         throw new IllegalStateException("VM program access denied.");
     }
@@ -684,7 +1045,7 @@ public final class NativeOnlyRuntime {
             if (!dir.isDirectory() && !dir.mkdirs()) {
                 return false;
             }
-            java.io.File lib = java.io.File.createTempFile("ssvm-", "-" + mapped, dir);
+            java.io.File lib = java.io.File.createTempFile(tempNativePrefix(resource, mapped), tempNativeSuffix(resource, mapped), dir);
             lib.deleteOnExit();
             try (java.io.OutputStream output = new java.io.FileOutputStream(lib)) {
                 output.write(decodeNative(input.readAllBytes(), resource));
@@ -694,6 +1055,19 @@ public final class NativeOnlyRuntime {
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    private static String tempNativePrefix(String resource, String mapped) {
+        int a = mix(resource.hashCode() ^ Integer.rotateLeft(mapped.hashCode(), 7) ^ 0x544D5031);
+        int b = mix(a ^ resource.length() * 0x45D9F3B ^ mapped.length() * 0x27D4EB2D);
+        String value = "j" + Integer.toUnsignedString(a, 36) + Integer.toUnsignedString(b, 36);
+        return value.length() >= 3 ? value : (value + "x7q");
+    }
+
+    private static String tempNativeSuffix(String resource, String mapped) {
+        int a = mix(resource.hashCode() ^ Integer.rotateLeft(mapped.hashCode(), 11) ^ 0x544D5032);
+        String ext = mapped.endsWith(".dll") ? ".dll" : "." + Integer.toUnsignedString(a, 36);
+        return "-" + Integer.toUnsignedString(a, 36) + ext;
     }
 
     private static boolean loadPathNative() {
@@ -778,19 +1152,23 @@ public final class NativeOnlyRuntime {
         if (data.length >= 28) {
             try {
                 java.nio.ByteBuffer header = java.nio.ByteBuffer.wrap(data).order(java.nio.ByteOrder.BIG_ENDIAN);
-                if (header.getInt() == NATIVE_MAGIC) {
-                    int version = header.getInt();
-                    int nonce = header.getInt();
-                    int keyTag = header.getInt();
-                    int rawLength = header.getInt();
-                    int payloadLength = header.getInt();
-                    int expectedCrc = header.getInt();
+                String runtime = NativeOnlyRuntime.class.getName();
+                int resourceHash = resource.hashCode();
+                int runtimeHash = runtime.hashCode();
+                int format = nativeFormat(resourceHash, runtimeHash, data.length);
+                int headerFormat = header.getInt() ^ nativeHeaderMask(resourceHash, runtimeHash, data.length, 0);
+                if (headerFormat == format) {
+                    int version = header.getInt() ^ nativeHeaderMask(resourceHash, runtimeHash, data.length, 1);
+                    int nonce = header.getInt() ^ nativeHeaderMask(resourceHash, runtimeHash, data.length, 2);
+                    int keyTag = header.getInt() ^ nativeHeaderMask(resourceHash, runtimeHash, data.length, 3);
+                    int rawLength = header.getInt() ^ nativeHeaderMask(resourceHash, runtimeHash, data.length, 4);
+                    int payloadLength = header.getInt() ^ nativeHeaderMask(resourceHash, runtimeHash, data.length, 5);
+                    int expectedCrc = header.getInt() ^ nativeHeaderMask(resourceHash, runtimeHash, data.length, 6);
                     if (version == NATIVE_VERSION && rawLength >= 0 && payloadLength >= 0
                             && payloadLength <= data.length - 28) {
                         byte[] payload = new byte[payloadLength];
                         header.get(payload);
-                        String runtime = NativeOnlyRuntime.class.getName();
-                        int key = keyTag ^ resource.hashCode() ^ runtime.hashCode() ^ NATIVE_MAGIC;
+                        int key = keyTag ^ resourceHash ^ runtimeHash ^ format;
                         int local = nativeState(key, nonce, resource, runtime, rawLength, payloadLength);
                         for (int i = 0; i < payload.length; i++) {
                             local = nativeStream(local, i);
@@ -836,6 +1214,28 @@ public final class NativeOnlyRuntime {
             decoded[i] = (byte) (decoded[i] ^ (local >>> 24));
         }
         return decoded;
+    }
+
+    private static int nativeFormat(int resourceHash, int runtimeHash, int totalLength) {
+        int value = 0x4E464D33 ^ resourceHash;
+        value ^= Integer.rotateLeft(runtimeHash, 7);
+        value ^= Integer.rotateLeft(totalLength * 0x27D4EB2D, 11);
+        value ^= Integer.rotateLeft(resourceHash * 0x45D9F3B, 3);
+        return mix(value ^ 0x7F4A7C15);
+    }
+
+    private static int nativeHeaderMask(int resourceHash, int runtimeHash, int totalLength, int slot) {
+        int value = 0x4E485244 ^ resourceHash;
+        value ^= Integer.rotateLeft(runtimeHash, (slot * 5 + 7) & 31);
+        value ^= Integer.rotateLeft(totalLength * 0x45D9F3B, (slot + 3) & 31);
+        value ^= slot * 0x9E3779B9;
+        value = Integer.rotateLeft(value + 0x7F4A7C15, 9);
+        value ^= value >>> 16;
+        value *= 0x85EBCA6B;
+        value ^= value >>> 13;
+        value *= 0xC2B2AE35;
+        value ^= value >>> 16;
+        return value == 0 ? 0x2468ACE1 : value;
     }
 
     private static int nativeState(int key, int nonce, String resource, String runtime, int rawLength, int payloadLength) {
