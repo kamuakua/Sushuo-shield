@@ -20,13 +20,16 @@ import java.util.Set;
 final class ReferenceObfuscator implements Opcodes {
     private static final String RM_BOOTSTRAP_DESC =
             "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;"
-                    + "Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IIII)Ljava/lang/invoke/CallSite;";
+                    + "Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IIIII)Ljava/lang/invoke/CallSite;";
+    private static final int CONST_KIND_METHOD_META = 7;
     private static final char METHOD_META_SEPARATOR = '\u001f';
 
     private ReferenceObfuscator() {
     }
 
-    static int obfuscate(ClassNode classNode, String runtimeClassName, ShieldRemapper remapper, Set<String> projectClasses) {
+    static int obfuscate(ClassNode classNode, String runtimeClassName, ShieldRemapper remapper,
+                         Set<String> projectClasses, NamingPlan namingPlan, long globalSeed,
+                         boolean nativeKeys) {
         int count = 0;
         for (MethodNode method : classNode.methods) {
             if ((method.access & (ACC_ABSTRACT | ACC_NATIVE | ACC_SYNTHETIC)) != 0
@@ -40,7 +43,8 @@ final class ReferenceObfuscator implements Opcodes {
             for (AbstractInsnNode instruction = method.instructions.getFirst(); instruction != null; ) {
                 AbstractInsnNode next = instruction.getNext();
                 if (instruction instanceof MethodInsnNode call && canObfuscate(call, runtimeClassName, projectClasses)) {
-                    InsnList replacement = replacement(classNode, method, call, remapper, runtimeClassName);
+                    InsnList replacement = replacement(classNode, method, call, remapper, runtimeClassName,
+                            namingPlan, globalSeed, nativeKeys);
                     method.instructions.insert(instruction, replacement);
                     method.instructions.remove(instruction);
                     count++;
@@ -97,9 +101,13 @@ final class ReferenceObfuscator implements Opcodes {
             MethodNode method,
             MethodInsnNode call,
             ShieldRemapper remapper,
-            String runtimeClassName
+            String runtimeClassName,
+            NamingPlan namingPlan,
+            long globalSeed,
+            boolean nativeKeys
     ) {
-        InsnList indyReplacement = invokedynamicReplacement(classNode, method, call, remapper, runtimeClassName);
+        InsnList indyReplacement = invokedynamicReplacement(classNode, method, call, remapper,
+                runtimeClassName, namingPlan, globalSeed, nativeKeys);
         if (indyReplacement != null) {
             return indyReplacement;
         }
@@ -152,7 +160,10 @@ final class ReferenceObfuscator implements Opcodes {
             MethodNode method,
             MethodInsnNode call,
             ShieldRemapper remapper,
-            String runtimeClassName
+            String runtimeClassName,
+            NamingPlan namingPlan,
+            long globalSeed,
+            boolean nativeKeys
     ) {
         if (classNode.version < V1_7) {
             return null;
@@ -168,7 +179,8 @@ final class ReferenceObfuscator implements Opcodes {
             String indyDescriptor = invokedynamicDescriptor(call);
             String mappedIndyDescriptor = remapper.mapMethodDesc(indyDescriptor);
             IndyPayload payload = encodeMethodPayload(classNode, method, call, remapper,
-                    mappedOwner, mappedName, mappedDescriptor, mappedIndyDescriptor);
+                    mappedOwner, mappedName, mappedDescriptor, mappedIndyDescriptor,
+                    namingPlan, globalSeed, nativeKeys);
             InsnList list = new InsnList();
             list.add(new InvokeDynamicInsnNode(
                     payload.siteName(),
@@ -180,7 +192,8 @@ final class ReferenceObfuscator implements Opcodes {
                     payload.seed(),
                     payload.salt(),
                     payload.flags(),
-                    payload.check()));
+                    payload.check(),
+                    payload.binding()));
             return list;
         } catch (RuntimeException ex) {
             return null;
@@ -195,7 +208,10 @@ final class ReferenceObfuscator implements Opcodes {
             String mappedOwner,
             String mappedName,
             String mappedDescriptor,
-            String mappedIndyDescriptor
+            String mappedIndyDescriptor,
+            NamingPlan namingPlan,
+            long globalSeed,
+            boolean nativeKeys
     ) {
         String mappedCaller = remapper.map(classNode.name);
         String mappedCallerMethod = remapper.mapMethodName(classNode.name, method.name, method.desc);
@@ -220,6 +236,12 @@ final class ReferenceObfuscator implements Opcodes {
         String clear = mappedOwner + METHOD_META_SEPARATOR + mappedName + METHOD_META_SEPARATOR + mappedDescriptor;
         byte[] plain = clear.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         int key = methodMetaKey(seed, salt, mappedCaller, siteName, mappedIndyDescriptor);
+        if (nativeKeys) {
+            int nativeKey = dynamicIntKey(seed, salt, mappedIndyDescriptor.hashCode(), mappedCaller, siteName)
+                    ^ VmPayloadResources.constantMask32(namingPlan, globalSeed, CONST_KIND_METHOD_META,
+                    mappedCaller.replace('/', '.'), siteName, seed, salt, mappedIndyDescriptor.hashCode());
+            key ^= nativeKey;
+        }
         byte[] encrypted = plain.clone();
         int local = mix(key ^ encrypted.length ^ 0x4D43444D);
         for (int i = 0; i < encrypted.length; i++) {
@@ -230,7 +252,8 @@ final class ReferenceObfuscator implements Opcodes {
         byte[][] shards = shard(encrypted, key);
         int flags = call.getOpcode() ^ mix(key ^ 0x4F50434F);
         int check = checksum(plain) ^ mix(key ^ Integer.rotateLeft(plain.length * 0x45D9F3B, 7) ^ 0x4348454B);
-        return new IndyPayload(siteName, hex(shards[0]), hex(shards[1]), hex(shards[2]), seed, salt, flags, check);
+        return new IndyPayload(siteName, hex(shards[0]), hex(shards[1]), hex(shards[2]),
+                seed, salt, flags, check, nativeKeys ? 1 : 0);
     }
 
     private static byte[][] shard(byte[] bytes, int key) {
@@ -281,6 +304,16 @@ final class ReferenceObfuscator implements Opcodes {
         local *= 0xC2B2AE35;
         local ^= local >>> 16;
         return local == 0 ? 0x13579BDF : local;
+    }
+
+    private static int dynamicIntKey(int key, int site, int salt, String owner, String method) {
+        int mixed = key ^ Integer.rotateLeft(site * 0x27D4EB2D, 9) ^ salt;
+        mixed ^= owner.replace('/', '.').hashCode();
+        mixed = Integer.rotateLeft(mixed + 0x165667B1, 7);
+        mixed ^= method.hashCode() * 0x85EBCA6B;
+        mixed ^= mixed >>> 15;
+        mixed *= 0xC2B2AE35;
+        return mixed ^ (mixed >>> 16);
     }
 
     private static int checksum(byte[] bytes) {
@@ -394,6 +427,7 @@ final class ReferenceObfuscator implements Opcodes {
                                int seed,
                                int salt,
                                int flags,
-                               int check) {
+                               int check,
+                               int binding) {
     }
 }

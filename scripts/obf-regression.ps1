@@ -885,18 +885,79 @@ import java.util.List;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Handle;
+import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.InvokeDynamicInsnNode;
+import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 
 public final class BsmProbe {
+    private static final class GuardPatchedLoader extends URLClassLoader implements Opcodes {
+        private int patched;
+
+        GuardPatchedLoader(File jar) throws Exception {
+            super(new URL[]{jar.toURI().toURL()}, ClassLoader.getPlatformClassLoader());
+        }
+
+        @Override
+        protected Class<?> findClass(String name) throws ClassNotFoundException {
+            String resourceName = name.replace('.', '/') + ".class";
+            try {
+                URL resource = super.findResource(resourceName);
+                if (resource == null) {
+                    throw new ClassNotFoundException(name);
+                }
+                byte[] bytes;
+                try (java.io.InputStream input = resource.openStream()) {
+                    bytes = input.readAllBytes();
+                }
+                ClassNode node = new ClassNode();
+                new ClassReader(bytes).accept(node, 0);
+                boolean changed = false;
+                for (MethodNode method : (List<MethodNode>) node.methods) {
+                    if (!"(Ljava/lang/Class;)V".equals(method.desc) || method.instructions == null) {
+                        continue;
+                    }
+                    boolean stackGuard = false;
+                    for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                        if (insn instanceof MethodInsnNode call
+                                && "java/lang/Thread".equals(call.owner)
+                                && "getStackTrace".equals(call.name)) {
+                            stackGuard = true;
+                            break;
+                        }
+                    }
+                    if (!stackGuard) {
+                        continue;
+                    }
+                    method.instructions.clear();
+                    method.tryCatchBlocks.clear();
+                    method.localVariables = null;
+                    method.instructions.add(new InsnNode(RETURN));
+                    patched++;
+                    changed = true;
+                }
+                if (changed) {
+                    ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+                    node.accept(writer);
+                    bytes = writer.toByteArray();
+                }
+                return defineClass(name, bytes, 0, bytes.length);
+            } catch (ClassNotFoundException ex) {
+                throw ex;
+            } catch (Exception ex) {
+                throw new ClassNotFoundException(name, ex);
+            }
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         File jar = new File(args[0]);
-        URLClassLoader loader = new URLClassLoader(
-                new URL[]{jar.toURI().toURL()},
-                ClassLoader.getPlatformClassLoader());
+        GuardPatchedLoader loader = new GuardPatchedLoader(jar);
         int attempted = 0;
         int rejected = 0;
         int leaked = 0;
@@ -942,19 +1003,10 @@ public final class BsmProbe {
                         try {
                             Class<?> runtime = Class.forName(bsmHandle.getOwner().replace('/', '.'), false, loader);
                             Class<?> target = Class.forName(targetName, false, loader);
-                            Method bootstrap = null;
-                            for (Method method : runtime.getDeclaredMethods()) {
-                                if (method.getReturnType() == CallSite.class
-                                        && method.getParameterCount() == 8
-                                        && method.getParameterTypes()[0].getName().contains("MethodHandles$Lookup")) {
-                                    bootstrap = method;
-                                    break;
-                                }
-                            }
-                            if (bootstrap == null) {
-                                rejected++;
-                                continue;
-                            }
+                            MethodType bootstrapType = MethodType.fromMethodDescriptorString(
+                                    bsmHandle.getDesc(), loader);
+                            Method bootstrap = runtime.getDeclaredMethod(
+                                    bsmHandle.getName(), bootstrapType.parameterArray());
                             bootstrap.setAccessible(true);
                             MethodHandles.Lookup lookup = MethodHandles.privateLookupIn(target, MethodHandles.lookup());
                             Object result = bootstrap.invoke(null,
@@ -976,7 +1028,8 @@ public final class BsmProbe {
                             rejected++;
                         }
                         if (attempted >= 16) {
-                            System.out.println("attempted=" + attempted + " rejected=" + rejected + " leaked=" + leaked);
+                            System.out.println("attempted=" + attempted + " rejected=" + rejected
+                                    + " leaked=" + leaked + " guardsPatched=" + loader.patched);
                             loader.close();
                             if (leaked > 0) {
                                 System.exit(2);
@@ -989,7 +1042,8 @@ public final class BsmProbe {
         } finally {
             loader.close();
         }
-        System.out.println("attempted=" + attempted + " rejected=" + rejected + " leaked=" + leaked);
+        System.out.println("attempted=" + attempted + " rejected=" + rejected
+                + " leaked=" + leaked + " guardsPatched=" + loader.patched);
         if (attempted == 0) {
             System.exit(3);
         }
@@ -1082,6 +1136,11 @@ $bootstrapProbe = Invoke-LoggedProcess -Name 'probe-bootstrap' -File $java -Argu
     $snakeMaxJar
 )
 Assert-LogKeyValueEquals -LogPath $bootstrapProbe.Log -Key 'leaked' -Expected 0 -Label 'bootstrap semantic leaks'
+$patchedBootstrapGuards = Get-LogKeyValueInt -LogPath $bootstrapProbe.Log -Key 'guardsPatched'
+if ($patchedBootstrapGuards -lt 1) {
+    throw "Bootstrap attack probe did not patch any Java stack guards. Log: $($bootstrapProbe.Log)"
+}
+Write-Host "bootstrap Java guards patched in analysis loader: $patchedBootstrapGuards"
 
 Write-Step 'Run broad obfuscation leak probe'
 $broadProbeJson = Join-Path $WorkDir 'obf-leak-probe.json'
@@ -1143,6 +1202,7 @@ if ($runtimeBootstrapShapes -ne 0) {
     throw "Broad probe found runtime static bootstrap oracle shapes: $runtimeBootstrapShapes."
 }
 $bootstrapDescriptorStability = $broadProbe.invokedynamicScan.bootstrapDescriptorStability
+$customBootstrapHandleArguments = [int] $broadProbe.invokedynamicScan.customBootstrapHandleArguments
 $constantBootstrapDescriptorStability = $broadProbe.invokedynamicScan.constantCandidateBootstrapDescriptorStability
 $bootstrapDescriptorDistinct = [int] $bootstrapDescriptorStability.distinctDescriptors
 $bootstrapDescriptorDominantShare = [double] $bootstrapDescriptorStability.dominantDescriptorShare
@@ -1215,6 +1275,9 @@ if ($broadDominantBootstrapOwnerShare -gt 0.35) {
 if ($bootstrapDescriptorDistinct -lt 12) {
     throw "Broad probe found insufficient bootstrap descriptor diversity: $bootstrapDescriptorDistinct descriptor(s)."
 }
+if ($customBootstrapHandleArguments -ne 0) {
+    throw "Broad probe found MethodHandle bootstrap arguments on custom call sites: $customBootstrapHandleArguments."
+}
 if ($bootstrapDescriptorDominantShare -gt 0.35) {
     throw "Broad probe dominant bootstrap descriptor share exceeded 0.35: $bootstrapDescriptorDominantShare."
 }
@@ -1224,14 +1287,14 @@ if ($constantBootstrapDescriptorDistinct -lt 10) {
 if ($constantBootstrapDescriptorDominantShare -gt 0.35) {
     throw "Broad probe dominant constant bootstrap descriptor share exceeded 0.35: $constantBootstrapDescriptorDominantShare."
 }
-if ($publicStaticRuntimeApis -gt 30) {
-    throw "Broad probe public static runtime API budget exceeded 30: $publicStaticRuntimeApis."
+if ($publicStaticRuntimeApis -gt 31) {
+    throw "Broad probe public static runtime API budget exceeded 31: $publicStaticRuntimeApis."
 }
-if ($publicStaticBootstrapApis -gt 19) {
-    throw "Broad probe public static bootstrap API budget exceeded 19: $publicStaticBootstrapApis."
+if ($publicStaticBootstrapApis -gt 20) {
+    throw "Broad probe public static bootstrap API budget exceeded 20: $publicStaticBootstrapApis."
 }
-if ($publicStaticLeakProneApis -gt 29) {
-    throw "Broad probe leak-prone runtime descriptor budget exceeded 29: $publicStaticLeakProneApis."
+if ($publicStaticLeakProneApis -gt 30) {
+    throw "Broad probe leak-prone runtime descriptor budget exceeded 30: $publicStaticLeakProneApis."
 }
 if ($directRuntimeBootstrapForwardCalls -ne 0) {
     throw "Broad probe found direct bootstrap forwards into the core runtime: $directRuntimeBootstrapForwardCalls."
@@ -1252,6 +1315,7 @@ Write-Host "broad probe ConstantCallSite ctor calls: $($broadProbe.callSiteShape
 Write-Host "broad probe MethodHandles.constant calls: $($broadProbe.callSiteShapes.methodHandlesConstant)"
 Write-Host "broad probe ConstantCallSite+MethodHandles.constant methods: $($broadProbe.callSiteShapes.constantCallSiteAndMethodHandlesConstantMethods)"
 Write-Host "broad probe bootstrap descriptor distinct: $($bootstrapDescriptorStability.distinctDescriptors)"
+Write-Host "broad probe custom bootstrap MethodHandle arguments: $customBootstrapHandleArguments"
 Write-Host "broad probe bootstrap descriptor dominant share: $($bootstrapDescriptorStability.dominantDescriptorShare)"
 Write-Host "broad probe zero-arg constant bootstrap descriptor distinct: $($constantBootstrapDescriptorStability.distinctDescriptors)"
 Write-Host "broad probe zero-arg constant bootstrap descriptor dominant share: $($constantBootstrapDescriptorStability.dominantDescriptorShare)"

@@ -40,7 +40,8 @@ final class ClassTransformer {
             stats.addAntiDeobfuscationArtifacts(AntiDeobfuscationNoise.inject(classNode, runtimeClassName, options.seed()));
         }
         if (options.referenceObfuscation()) {
-            stats.addReferenceObfuscatedCalls(ReferenceObfuscator.obfuscate(classNode, runtimeClassName, remapper, projectClasses));
+            stats.addReferenceObfuscatedCalls(ReferenceObfuscator.obfuscate(classNode, runtimeClassName,
+                    remapper, projectClasses, namingPlan, options.seed(), options.requireNativeVm()));
         }
         if (options.virtualize()) {
             Virtualizer.virtualize(classNode, runtimeClassName, remapper, projectClasses,

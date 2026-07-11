@@ -441,6 +441,7 @@ final class RuntimeClassGenerator {
                         licenseHash, integrityResourceName, integrityHash, selfHashValue);
                 rewriteNativeBridgeCalls(remapped, bridgeClassName, bridgeMethodName,
                         bridgeKeyIntMethodName, bridgeKeyLongMethodName);
+                patchVmEntryTargetName(remapped, runtimeApiNames);
                 obfuscateRuntimeStringLiterals(remapped, targetName);
                 RuntimeApiObfuscator.rewriteClassNode(remapped, targetName, runtimeApiNames, true);
                 hideBootstrapApis(remapped, runtimeApiNames);
@@ -475,6 +476,25 @@ final class RuntimeClassGenerator {
                             && call.desc.equals("(ILjava/lang/Class;Ljava/lang/String;JII)J")) {
                         call.name = bridgeKeyLongMethodName;
                     }
+                }
+            }
+        }
+    }
+
+    private static void patchVmEntryTargetName(
+            ClassNode classNode,
+            Map<RuntimeApiObfuscator.MemberSig, String> runtimeApiNames
+    ) {
+        String descriptor = "(Ljava/lang/Object;Ljava/lang/Object;I)Ljava/lang/Object;";
+        String target = runtimeApiNames.getOrDefault(
+                new RuntimeApiObfuscator.MemberSig("_vx", descriptor), "_vx");
+        for (MethodNode method : classNode.methods) {
+            for (AbstractInsnNode instruction = method.instructions.getFirst();
+                 instruction != null;
+                 instruction = instruction.getNext()) {
+                if (instruction instanceof LdcInsnNode ldc
+                        && "%%SUSHUO_VM_ENTRY_TARGET%%".equals(ldc.cst)) {
+                    ldc.cst = target;
                 }
             }
         }

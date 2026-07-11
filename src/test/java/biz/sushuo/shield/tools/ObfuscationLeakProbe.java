@@ -150,6 +150,13 @@ public final class ObfuscationLeakProbe implements Opcodes {
                         inc(s.bootstrapOwnerSites, indy.bsm.getOwner());
                         inc(s.bootstrapDescriptors, indy.bsm.getDesc());
                         inc(s.bootstrapHandles, handle(indy.bsm));
+                        if (!indy.bsm.getOwner().startsWith("java/lang/invoke/") && indy.bsmArgs != null) {
+                            for (Object argument : indy.bsmArgs) {
+                                if (argument instanceof Handle) {
+                                    s.customBootstrapHandleArguments++;
+                                }
+                            }
+                        }
                     } else {
                         s.sitesMissingBootstrap++;
                     }
@@ -1136,7 +1143,8 @@ public final class ObfuscationLeakProbe implements Opcodes {
     }
 
     private static final class IndyScan {
-        int totalSites, sitesWithBootstrap, sitesMissingBootstrap, constantCandidatesWithBootstrap;
+        int totalSites, sitesWithBootstrap, sitesMissingBootstrap, constantCandidatesWithBootstrap,
+                customBootstrapHandleArguments;
         final Set<String> bootstrapOwners = new LinkedHashSet<>();
         final Map<String,Integer> returnSites = kinds(), zeroArgConstantReturnSites = kinds(),
                 bootstrapOwnerSites = new TreeMap<>(),
@@ -1163,6 +1171,7 @@ public final class ObfuscationLeakProbe implements Opcodes {
             m.put("bootstrapOwnerSites", bootstrapOwnerSites);
             m.put("bootstrapDescriptors", bootstrapDescriptors);
             m.put("bootstrapHandles", bootstrapHandles);
+            m.put("customBootstrapHandleArguments", customBootstrapHandleArguments);
             m.put("bootstrapDescriptorStability", descriptorStability(sitesWithBootstrap, bootstrapDescriptors, bootstrapHandles));
             m.put("returnSites", returnSites);
             m.put("zeroArgConstantReturnSites", zeroArgConstantReturnSites);

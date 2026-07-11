@@ -1,11 +1,14 @@
 package biz.sushuo.shield;
 
+import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AnnotationNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.MethodNode;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -24,6 +27,7 @@ final class NamePlanner implements Opcodes {
         Map<MemberKey, String> methodNames = new HashMap<>();
         Map<MemberKey, String> fieldNames = new HashMap<>();
         Set<String> usedClasses = new HashSet<>(classes.keySet());
+        Set<MemberKey> inheritedMethodContracts = inheritedMethodContracts(classes);
         String namePrefix = effectiveNamePrefix(options);
 
         if (options.renameClasses()) {
@@ -67,7 +71,8 @@ final class NamePlanner implements Opcodes {
                     }
                 }
                 for (MethodNode method : classNode.methods) {
-                    if (canRenameMethod(classNode, method, options, strongMemberRename)) {
+                    if (canRenameMethod(classNode, method, options, strongMemberRename,
+                            inheritedMethodContracts)) {
                         String next = nextMemberName(random, usedMethodKeys, classNode.name,
                                 method.name, method.desc, methodIndex++, options);
                         methodNames.put(new MemberKey(classNode.name, method.name, method.desc), next);
@@ -137,7 +142,9 @@ final class NamePlanner implements Opcodes {
         return (field.access & ACC_PRIVATE) != 0;
     }
 
-    private static boolean canRenameMethod(ClassNode owner, MethodNode method, ObfuscationOptions options, boolean strongMemberRename) {
+    private static boolean canRenameMethod(ClassNode owner, MethodNode method, ObfuscationOptions options,
+                                           boolean strongMemberRename,
+                                           Set<MemberKey> inheritedMethodContracts) {
         if (method.name.equals("<init>") || method.name.equals("<clinit>")) {
             return false;
         }
@@ -148,6 +155,10 @@ final class NamePlanner implements Opcodes {
         if ((method.access & ACC_NATIVE) != 0) {
             return false;
         }
+        if ((method.access & ACC_BRIDGE) != 0
+                || inheritedMethodContracts.contains(new MemberKey(owner.name, method.name, method.desc))) {
+            return false;
+        }
         if ((owner.access & ACC_ENUM) != 0 && (method.name.equals("values") || method.name.equals("valueOf"))) {
             return false;
         }
@@ -155,6 +166,83 @@ final class NamePlanner implements Opcodes {
             return true;
         }
         return (method.access & ACC_PRIVATE) != 0;
+    }
+
+    private static Set<MemberKey> inheritedMethodContracts(Map<String, ClassNode> classes) {
+        Map<String, ClassNode> hierarchy = new HashMap<>(classes);
+        Set<String> missing = new HashSet<>();
+        Set<MemberKey> contracts = new HashSet<>();
+        for (ClassNode owner : classes.values()) {
+            for (MethodNode method : owner.methods) {
+                if ((method.access & (ACC_PRIVATE | ACC_STATIC)) != 0
+                        || method.name.equals("<init>") || method.name.equals("<clinit>")) {
+                    continue;
+                }
+                Set<String> visited = new HashSet<>();
+                if (declaredByParent(owner.superName, method.name, method.desc,
+                        hierarchy, missing, visited)) {
+                    contracts.add(new MemberKey(owner.name, method.name, method.desc));
+                    continue;
+                }
+                for (String interfaceName : owner.interfaces) {
+                    if (declaredByParent(interfaceName, method.name, method.desc,
+                            hierarchy, missing, visited)) {
+                        contracts.add(new MemberKey(owner.name, method.name, method.desc));
+                        break;
+                    }
+                }
+            }
+        }
+        return contracts;
+    }
+
+    private static boolean declaredByParent(String parentName, String methodName, String descriptor,
+                                            Map<String, ClassNode> hierarchy, Set<String> missing,
+                                            Set<String> visited) {
+        if (parentName == null || !visited.add(parentName)) {
+            return false;
+        }
+        ClassNode parent = hierarchy.get(parentName);
+        if (parent == null && !missing.contains(parentName)) {
+            parent = readHierarchyClass(parentName);
+            if (parent == null) {
+                missing.add(parentName);
+            } else {
+                hierarchy.put(parentName, parent);
+            }
+        }
+        if (parent == null) {
+            return false;
+        }
+        for (MethodNode candidate : parent.methods) {
+            if (candidate.name.equals(methodName) && candidate.desc.equals(descriptor)
+                    && (candidate.access & (ACC_PRIVATE | ACC_STATIC)) == 0) {
+                return true;
+            }
+        }
+        if (declaredByParent(parent.superName, methodName, descriptor, hierarchy, missing, visited)) {
+            return true;
+        }
+        for (String interfaceName : parent.interfaces) {
+            if (declaredByParent(interfaceName, methodName, descriptor, hierarchy, missing, visited)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static ClassNode readHierarchyClass(String internalName) {
+        try (InputStream input = ClassLoader.getSystemResourceAsStream(internalName + ".class")) {
+            if (input == null) {
+                return null;
+            }
+            ClassNode node = new ClassNode();
+            new ClassReader(input).accept(node,
+                    ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+            return node;
+        } catch (IOException | RuntimeException ignored) {
+            return null;
+        }
     }
 
     private static boolean isMixinLikeClass(ClassNode classNode) {

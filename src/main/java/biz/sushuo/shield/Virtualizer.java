@@ -384,9 +384,8 @@ final class Virtualizer implements Opcodes {
         body.add(new InvokeDynamicInsnNode(siteName, descriptor,
                 new Handle(H_INVOKESTATIC, runtimeClassName, "_rv",
                         "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;"
-                                + "Ljava/lang/invoke/MethodHandle;III)Ljava/lang/invoke/CallSite;",
+                                + "III)Ljava/lang/invoke/CallSite;",
                         false),
-                new Handle(H_INVOKESTATIC, runtimeClassName, "_vx", descriptor, false),
                 siteSeed,
                 siteSalt,
                 check));

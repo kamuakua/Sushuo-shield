@@ -10,6 +10,7 @@ public final class NativeOnlyRuntime {
     private static final int CONST_KIND_LONG = 3;
     private static final int CONST_KIND_FLOAT = 4;
     private static final int CONST_KIND_DOUBLE = 5;
+    private static final int CONST_KIND_METHOD_META = 7;
     private static final boolean ANTI_DEBUG = Boolean.parseBoolean("%%SUSHUO_ANTI_DEBUG%%");
     private static final boolean ANTI_VM = Boolean.parseBoolean("%%SUSHUO_ANTI_VM%%");
     private static final int LICENSE_HASH = parseOptionInt("%%SUSHUO_LICENSE_HASH%%");
@@ -190,10 +191,12 @@ public final class NativeOnlyRuntime {
                                                 int seed,
                                                 int salt,
                                                 int flags,
-                                                int check) throws java.lang.NoSuchMethodException, java.lang.IllegalAccessException {
+                                                int check,
+                                                int binding) throws java.lang.NoSuchMethodException, java.lang.IllegalAccessException {
         Class<?> caller = lookup.lookupClass();
         constantCallSiteGuard(caller);
-        Object[] meta = _rcmp(caller, name, type, part0, part1, part2, seed, salt, flags, check);
+        Object[] meta = _rcmp(caller, name, type, part0, part1, part2,
+                seed, salt, flags, check, binding);
         String owner = (String) meta[0];
         String targetName = (String) meta[1];
         String descriptor = (String) meta[2];
@@ -210,7 +213,6 @@ public final class NativeOnlyRuntime {
     public static java.lang.invoke.CallSite _rv(java.lang.invoke.MethodHandles.Lookup lookup,
                                                 String name,
                                                 java.lang.invoke.MethodType type,
-                                                java.lang.invoke.MethodHandle target,
                                                 int seed,
                                                 int salt,
                                                 int check) throws java.lang.NoSuchMethodException, java.lang.IllegalAccessException {
@@ -220,13 +222,13 @@ public final class NativeOnlyRuntime {
                 Object.class, Object.class, Object.class, int.class);
         int key = vmEntryIndyKey(seed, salt, caller, name, type);
         if (check != vmEntryIndyCheck(key, seed, salt)
-                || target == null
-                || !target.type().equals(expected)
                 || type.parameterCount() != 3
                 || type.returnType() != Object.class) {
             state ^= key;
             throw new IllegalStateException("x");
         }
+        java.lang.invoke.MethodHandle target = java.lang.invoke.MethodHandles.lookup().findStatic(
+                ownerRuntimeClass(), "%%SUSHUO_VM_ENTRY_TARGET%%", expected);
         return new java.lang.invoke.MutableCallSite(target.asType(type));
     }
 
@@ -255,10 +257,15 @@ public final class NativeOnlyRuntime {
                                   int seed,
                                   int salt,
                                   int flags,
-                                  int check) {
+                                  int check,
+                                  int binding) {
         String ownerName = caller.getName().replace('.', '/');
         String descriptor = type.toMethodDescriptorString();
         int key = methodMetaKey(seed, salt, ownerName, name, descriptor);
+        if (binding != 0) {
+            key ^= nativeIntKey(CONST_KIND_METHOD_META, caller, name,
+                    seed, salt, descriptor.hashCode());
+        }
         byte[][] shards = new byte[][]{hexToBytes(part0), hexToBytes(part1), hexToBytes(part2)};
         int length = shards[0].length + shards[1].length + shards[2].length;
         byte[] encrypted = new byte[length];

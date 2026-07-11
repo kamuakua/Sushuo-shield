@@ -25,7 +25,7 @@ final class RuntimeApiObfuscator {
             {"_cl", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;JJIII)Ljava/lang/invoke/CallSite;"},
             {"_cf", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;IIIII)Ljava/lang/invoke/CallSite;"},
             {"_cd", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;JJIII)Ljava/lang/invoke/CallSite;"},
-            {"_rm", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IIII)Ljava/lang/invoke/CallSite;"},
+            {"_rm", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IIIII)Ljava/lang/invoke/CallSite;"},
             {"_m", "(Ljava/lang/String;)Ljava/lang/String;"},
             {"_ma", "([Ljava/lang/String;)[Ljava/lang/String;"},
             {"_sc", "(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;"},
@@ -37,7 +37,7 @@ final class RuntimeApiObfuscator {
             {"_rl", "(Ljava/lang/ClassLoader;Ljava/lang/String;)Ljava/io/InputStream;"},
             {"_rc", "(Ljava/lang/Class;Ljava/lang/String;)Ljava/io/InputStream;"},
             {"_rg", "(Ljava/lang/String;)Ljava/io/InputStream;"},
-            {"_rv", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;III)Ljava/lang/invoke/CallSite;"}
+            {"_rv", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;III)Ljava/lang/invoke/CallSite;"}
     };
 
     private RuntimeApiObfuscator() {

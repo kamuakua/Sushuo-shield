@@ -1770,6 +1770,46 @@ static int stack_contains_frame(JNIEnv *env, const char *expected_owner, const c
     return 0;
 }
 
+static int stack_contains_owner(JNIEnv *env, const char *expected_owner) {
+    jclass thread_cls = (*env)->FindClass(env, SS(91));
+    jclass ste_cls = (*env)->FindClass(env, SS(92));
+    if (thread_cls == NULL || ste_cls == NULL || expected_owner == NULL) {
+        return 0;
+    }
+    jmethodID current_thread = (*env)->GetStaticMethodID(env, thread_cls, SS(93), SS(94));
+    jmethodID get_stack = (*env)->GetMethodID(env, thread_cls, SS(84), SS(95));
+    jmethodID get_class_name = (*env)->GetMethodID(env, ste_cls, SS(96), SS(97));
+    if (current_thread == NULL || get_stack == NULL || get_class_name == NULL) {
+        return 0;
+    }
+    jobject thread = (*env)->CallStaticObjectMethod(env, thread_cls, current_thread);
+    jobjectArray trace = thread == NULL ? NULL : (jobjectArray) (*env)->CallObjectMethod(env, thread, get_stack);
+    if (trace == NULL || (*env)->ExceptionCheck(env)) {
+        return 0;
+    }
+    jsize count = (*env)->GetArrayLength(env, trace);
+    for (jsize i = 0; i < count; i++) {
+        jobject element = (*env)->GetObjectArrayElement(env, trace, i);
+        if (element == NULL) {
+            continue;
+        }
+        jstring owner_string = (jstring) (*env)->CallObjectMethod(env, element, get_class_name);
+        if (owner_string == NULL || (*env)->ExceptionCheck(env)) {
+            return 0;
+        }
+        const char *owner = (*env)->GetStringUTFChars(env, owner_string, NULL);
+        if (owner == NULL) {
+            return 0;
+        }
+        int matched = strcmp(owner, expected_owner) == 0;
+        (*env)->ReleaseStringUTFChars(env, owner_string, owner);
+        if (matched) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static jstring unseal_resource_name(JNIEnv *env, jstring sealed, jint token, jint site) {
     jsize len = (*env)->GetStringLength(env, sealed);
     const jchar *raw = (*env)->GetStringChars(env, sealed, NULL);
@@ -1947,8 +1987,13 @@ static jint SUSHUO_CALL sushuo_native_key_i(
             ? dynamic_string_key_native(key, site, salt, owner, name)
             : dynamic_int_key_native(key, site, salt, owner, name);
     jint result = dynamic ^ constant_mask32_native(kind, owner, name, key, site, salt);
+    int valid_context = stack_contains_owner(env, owner);
     (*env)->ReleaseStringUTFChars(env, owner_string, owner);
     (*env)->ReleaseStringUTFChars(env, indy_name, name);
+    if (!valid_context) {
+        throw_illegal_state(env, SS(7));
+        return 0;
+    }
     return result;
 }
 
@@ -1976,8 +2021,13 @@ static jlong SUSHUO_CALL sushuo_native_key_l(
     }
     jlong result = dynamic_long_key_native(key, site, salt, owner, name)
             ^ constant_mask64_native(kind, owner, name, key, site, salt);
+    int valid_context = stack_contains_owner(env, owner);
     (*env)->ReleaseStringUTFChars(env, owner_string, owner);
     (*env)->ReleaseStringUTFChars(env, indy_name, name);
+    if (!valid_context) {
+        throw_illegal_state(env, SS(7));
+        return 0;
+    }
     return result;
 }
 
