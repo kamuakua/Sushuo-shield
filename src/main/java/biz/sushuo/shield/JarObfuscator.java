@@ -48,6 +48,32 @@ final class JarObfuscator {
                 }
             }
         }
+        if (options.jvmPhantom()) {
+            Set<String> oversizedClasses = oversizedClasses(input.classes());
+            Map<String, ClassNode> originalClasses = parseClasses(input.classes());
+            try {
+                JvmPhantomObfuscator.apply(classes, options, oversizedClasses, true);
+                ClassHierarchy phantomHierarchy = ClassHierarchy.from(classes, Map.of());
+                input = new InputJar(writeClassNodes(classes, phantomHierarchy), input.resources());
+            } catch (RuntimeException ex) {
+                if (!isClassSizeFailure(ex)) {
+                    throw ex;
+                }
+                stats.addSizeFallbackClass();
+                classes = parseClasses(input.classes());
+                try {
+                    JvmPhantomObfuscator.apply(classes, options, oversizedClasses, false);
+                    ClassHierarchy phantomHierarchy = ClassHierarchy.from(classes, Map.of());
+                    input = new InputJar(writeClassNodes(classes, phantomHierarchy), input.resources());
+                } catch (RuntimeException fallback) {
+                    if (!isClassSizeFailure(fallback)) {
+                        throw fallback;
+                    }
+                    stats.addSizeFallbackClass();
+                    classes = originalClasses;
+                }
+            }
+        }
         NamingPlan namingPlan = NamePlanner.plan(classes, options);
         ShieldRemapper remapper = new ShieldRemapper(namingPlan);
         ClassHierarchy hierarchy = ClassHierarchy.from(classes, namingPlan.classNames());
@@ -116,7 +142,7 @@ final class JarObfuscator {
 
     private static boolean shouldPackageNative(ObfuscationOptions options) {
         return switch (options.mode()) {
-            case COMPAT, ZKM26 -> options.requireNativeVm();
+            case JVM_PHANTOM, COMPAT, ZKM26 -> options.requireNativeVm();
             default -> true;
         };
     }
@@ -203,6 +229,21 @@ final class JarObfuscator {
             }
         }
         return excluded;
+    }
+
+    private static Set<String> oversizedClasses(Map<String, byte[]> classEntries) {
+        Set<String> oversized = new TreeSet<>();
+        for (Map.Entry<String, byte[]> entry : classEntries.entrySet()) {
+            if (entry.getValue().length <= 48 * 1024) {
+                continue;
+            }
+            String name = entry.getKey();
+            if (name.endsWith(".class")) {
+                name = name.substring(0, name.length() - ".class".length());
+            }
+            oversized.add(name);
+        }
+        return oversized;
     }
 
     private static Map<String, byte[]> writeClassNodes(Map<String, ClassNode> classNodes, ClassHierarchy hierarchy) {

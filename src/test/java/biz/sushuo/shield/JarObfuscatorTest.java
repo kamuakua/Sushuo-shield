@@ -355,6 +355,129 @@ final class JarObfuscatorTest {
     }
 
     @Test
+    void movesStaticConstantValuesIntoEncryptedClassInitialization() throws Exception {
+        Path temp = Files.createTempDirectory("sushuo-shield-static-fields");
+        Path sourceRoot = Files.createDirectories(temp.resolve("src/demo"));
+        Path classRoot = Files.createDirectories(temp.resolve("classes"));
+        Path source = sourceRoot.resolve("StaticConstantsApp.java");
+        Files.writeString(source, """
+                package demo;
+
+                public final class StaticConstantsApp {
+                    public static final String SECRET = "static-secret-value";
+                    public static final int MAGIC = 0x5A17;
+                    public static final long LONG_MAGIC = 0x1122334455667788L;
+
+                    public static void main(String[] args) throws Exception {
+                        java.lang.reflect.Field secret = StaticConstantsApp.class.getDeclaredField("SECRET");
+                        java.lang.reflect.Field magic = StaticConstantsApp.class.getDeclaredField("MAGIC");
+                        java.lang.reflect.Field longMagic = StaticConstantsApp.class.getDeclaredField("LONG_MAGIC");
+                        System.out.println(secret.get(null));
+                        System.out.println(magic.getInt(null));
+                        System.out.println(longMagic.getLong(null));
+                    }
+                }
+                """);
+
+        int compileResult = ToolProvider.getSystemJavaCompiler()
+                .run(null, null, null, "-d", classRoot.toString(), source.toString());
+        assertEquals(0, compileResult);
+
+        Path input = temp.resolve("input.jar");
+        createJar(input, classRoot, "demo.StaticConstantsApp");
+        Path output = temp.resolve("output.jar");
+
+        ObfuscationResult result = new JarObfuscator().obfuscate(ObfuscationOptions.builder()
+                .input(input)
+                .output(output)
+                .seed(13579L)
+                .renameClasses(false)
+                .renameMembers(false)
+                .virtualize(false)
+                .controlFlow(false)
+                .build());
+
+        assertTrue(result.encryptedStrings() >= 1);
+        assertTrue(result.obfuscatedNumbers() >= 2);
+        assertFalse(jarClassBytesContain(output, "static-secret-value"));
+
+        Process process = new ProcessBuilder(javaBin(), "-jar", output.toString())
+                .redirectErrorStream(true)
+                .start();
+        String stdout = processOutput(process);
+        assertEquals(0, process.waitFor());
+        assertEquals("static-secret-value\n23063\n1234605616436508552\n", stdout);
+    }
+
+    @Test
+    void phantomJvmWrappersPreserveProjectCallsAndFields() throws Exception {
+        Path temp = Files.createTempDirectory("sushuo-shield-phantom-jvm");
+        Path sourceRoot = Files.createDirectories(temp.resolve("src/demo"));
+        Path classRoot = Files.createDirectories(temp.resolve("classes"));
+        Path helperSource = sourceRoot.resolve("Helper.java");
+        Path appSource = sourceRoot.resolve("PhantomJvmApp.java");
+        Files.writeString(helperSource, """
+                package demo;
+
+                public final class Helper {
+                    public static int VALUE = 3;
+
+                    public static int add(int left, int right) {
+                        return left + right + VALUE;
+                    }
+
+                    public int inc(int value) {
+                        return value + VALUE;
+                    }
+                }
+                """);
+        Files.writeString(appSource, """
+                package demo;
+
+                public final class PhantomJvmApp {
+                    public static void main(String[] args) {
+                        Helper helper = new Helper();
+                        System.out.println(Helper.add(2, 4));
+                        System.out.println(helper.inc(5));
+                        Helper.VALUE = 9;
+                        System.out.println(helper.inc(5));
+                    }
+                }
+                """);
+
+        int compileResult = ToolProvider.getSystemJavaCompiler()
+                .run(null, null, null, "-d", classRoot.toString(), helperSource.toString(), appSource.toString());
+        assertEquals(0, compileResult);
+
+        Path input = temp.resolve("input.jar");
+        createJar(input, classRoot, "demo.PhantomJvmApp");
+        Path output = temp.resolve("output.jar");
+
+        ObfuscationResult result = new JarObfuscator().obfuscate(ObfuscationOptions.builder()
+                .input(input)
+                .output(output)
+                .seed(86420L)
+                .mode(ProtectionMode.JVM_PHANTOM)
+                .jvmPhantom(true)
+                .renameClasses(false)
+                .renameMembers(false)
+                .virtualize(false)
+                .controlFlow(false)
+                .referenceObfuscation(false)
+                .sdkMarkers(false)
+                .build());
+
+        assertTrue(result.encryptedStrings() >= 0);
+
+        Process process = new ProcessBuilder(javaBin(), "-jar", output.toString())
+                .redirectErrorStream(true)
+                .start();
+        String stdout = processOutput(process);
+        assertEquals(0, process.waitFor());
+        assertEquals("9\n8\n14\n", stdout);
+    }
+
+    @Test
     void virtualizesMethodsThatInvokeExternalStaticOwners() throws Exception {
         Path temp = Files.createTempDirectory("sushuo-shield-external-invoke");
         Path sourceRoot = Files.createDirectories(temp.resolve("src/demo"));

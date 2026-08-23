@@ -34,7 +34,8 @@ record ObfuscationOptions(
         boolean rewriteTextResources,
         boolean encryptResources,
         boolean requireNativeVm,
-        boolean minecraftMode
+        boolean minecraftMode,
+        boolean jvmPhantom
 ) {
     static Builder builder() {
         return new Builder();
@@ -76,7 +77,7 @@ record ObfuscationOptions(
                 obfuscateNumbers, virtualize, controlFlow, stripDebug, scrambleLineNumbers,
                 referenceObfuscation, antiAiDeobfuscation, sdkMarkers, antiDebug, antiVm,
                 licenseHash, methodParameterObfuscation, rewriteTextResources, encryptResources,
-                requireNativeVm, minecraftMode);
+                requireNativeVm, minecraftMode, jvmPhantom);
     }
 
     ObfuscationOptions withClassTransforms(boolean encryptStrings, boolean obfuscateNumbers,
@@ -86,7 +87,7 @@ record ObfuscationOptions(
                 obfuscateNumbers, virtualize, controlFlow, stripDebug, scrambleLineNumbers,
                 referenceObfuscation, antiAiDeobfuscation, sdkMarkers, antiDebug, antiVm,
                 licenseHash, methodParameterObfuscation, rewriteTextResources, encryptResources,
-                requireNativeVm, minecraftMode);
+                requireNativeVm, minecraftMode, jvmPhantom);
     }
 
     ObfuscationOptions withoutExtraProtectionPasses() {
@@ -95,7 +96,7 @@ record ObfuscationOptions(
                 obfuscateNumbers, virtualize, controlFlow, stripDebug, false,
                 false, false, sdkMarkers, antiDebug, antiVm, licenseHash,
                 methodParameterObfuscation, rewriteTextResources, encryptResources,
-                requireNativeVm, minecraftMode);
+                requireNativeVm, minecraftMode, jvmPhantom);
     }
 
     static final class Builder {
@@ -126,6 +127,7 @@ record ObfuscationOptions(
         private boolean encryptResources;
         private boolean requireNativeVm;
         private boolean minecraftMode;
+        private boolean jvmPhantom;
 
         Builder input(Path input) {
             this.input = input;
@@ -267,6 +269,11 @@ record ObfuscationOptions(
             return this;
         }
 
+        Builder jvmPhantom(boolean jvmPhantom) {
+            this.jvmPhantom = jvmPhantom;
+            return this;
+        }
+
         ObfuscationOptions build() {
             if (input == null || output == null) {
                 throw new UsageException("Input/output jar is required.");
@@ -276,7 +283,7 @@ record ObfuscationOptions(
                     obfuscateNumbers, virtualize, controlFlow, stripDebug, scrambleLineNumbers,
                     referenceObfuscation, antiAiDeobfuscation, sdkMarkers, antiDebug, antiVm,
                     licenseHash, methodParameterObfuscation, rewriteTextResources, encryptResources,
-                    requireNativeVm, minecraftMode);
+                    requireNativeVm, minecraftMode, jvmPhantom);
         }
 
         private static int licenseHash(String value) {

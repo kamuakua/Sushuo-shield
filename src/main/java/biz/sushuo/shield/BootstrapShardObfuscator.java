@@ -63,8 +63,16 @@ final class BootstrapShardObfuscator implements Opcodes {
 
         Map<String, byte[]> rewritten = new TreeMap<>();
         for (Map.Entry<String, byte[]> entry : classes.entrySet()) {
-            rewritten.put(entry.getKey(), rewriteClass(entry.getValue(), runtimeClassName,
-                    routes, usedMethods, seed));
+            try {
+                rewritten.put(entry.getKey(), rewriteClass(entry.getValue(), runtimeClassName,
+                        routes, usedMethods, seed));
+            } catch (RuntimeException ex) {
+                if (!isClassSizeFailure(ex)) {
+                    throw ex;
+                }
+                // Keep the original bootstrap handles for classes that are already at the JVM size limit.
+                rewritten.put(entry.getKey(), entry.getValue());
+            }
         }
         for (String shardName : shardNames) {
             Set<AdapterMethod> methods = usedMethods.get(shardName);
@@ -74,6 +82,14 @@ final class BootstrapShardObfuscator implements Opcodes {
             }
         }
         return rewritten;
+    }
+
+    private static boolean isClassSizeFailure(RuntimeException ex) {
+        return ex instanceof org.objectweb.asm.ClassTooLargeException
+                || ex instanceof org.objectweb.asm.MethodTooLargeException
+                || ex instanceof IllegalArgumentException
+                && ex.getMessage() != null
+                && ex.getMessage().contains("UTF8 string too large");
     }
 
     private static Set<BootstrapMethod> mappedBootstraps(

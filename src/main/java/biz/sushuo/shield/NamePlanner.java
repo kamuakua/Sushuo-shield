@@ -92,7 +92,7 @@ final class NamePlanner implements Opcodes {
             return options.namePrefix();
         }
         return switch (options.mode()) {
-            case JNIC, ZKM26, VMP, STACKED -> stealthPrefix(options.seed(), options.mode());
+            case JVM_PHANTOM, JNIC, ZKM26, VMP, STACKED -> stealthPrefix(options.seed(), options.mode());
             default -> options.namePrefix();
         };
     }
@@ -377,7 +377,7 @@ final class NamePlanner implements Opcodes {
 
     private static boolean strongGeneratedMemberNames(ObfuscationOptions options) {
         return switch (options.mode()) {
-            case JNIC, ZKM26, VMP, STACKED, MINECRAFT_MAX -> true;
+            case JVM_PHANTOM, JNIC, ZKM26, VMP, STACKED, MINECRAFT_MAX -> true;
             default -> false;
         };
     }

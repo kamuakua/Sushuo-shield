@@ -6,6 +6,8 @@ JAR obfuscator/protector with sushuo1337-style defaults:
 - class/member renaming
 - string runtime encryption
 - number expression obfuscation
+- static constant field initialization moved into bytecode before literal passes
+- Phantom-style JVM member shuffling and project call/field wrappers in strong presets
 - debug/signature stripping
 - manifest and text resource class-name rewrite
 - lightweight control-flow guards
@@ -16,6 +18,12 @@ Build:
 
 ```powershell
 mvn -DskipTests package
+```
+
+ImGui GUI:
+
+```powershell
+java --enable-native-access=ALL-UNNAMED -jar target\sushuo-shield-1.0.0.jar --gui
 ```
 
 Use:
@@ -36,12 +44,19 @@ java -jar target\sushuo-shield-1.0.0.jar input.jar output-jnic.jar --mode jnic
 # and anti-deobfuscation noise. No native payload is packaged in this mode.
 java -jar target\sushuo-shield-1.0.0.jar input.jar output-zkm26.jar --mode zkm26
 
+# JVM-only Phantom-style mode: field lowering, member shuffling, project
+# call/field wrappers, plus the existing string/number/VM/flow passes.
+java -jar target\sushuo-shield-1.0.0.jar input.jar output-jvm.jar --mode jvm
+
 # VMProtect-style: mutation-like number/string/control-flow layer plus
 # native-required VM virtualization and encrypted native/resource payloads.
 java -jar target\sushuo-shield-1.0.0.jar input.jar output-vmp.jar --mode vmprotect
 
 # Stacked mode combines the JNIC/ZKM/VMProtect-style layers.
 java -jar target\sushuo-shield-1.0.0.jar input.jar output-stacked.jar --mode stacked
+
+# `all` is an alias for the same combined protection pipeline.
+java -jar target\sushuo-shield-1.0.0.jar input.jar output-all.jar --mode all
 ```
 
 Extra switches:

@@ -67,6 +67,7 @@ final class ProtectionReportWriter {
         appendFlag(out, "rewriteTextResources", options.rewriteTextResources());
         appendFlag(out, "encryptResources", options.encryptResources());
         appendFlag(out, "minecraftMode", options.minecraftMode());
+        appendFlag(out, "jvmPhantom", options.jvmPhantom());
         if (!options.excludes().isEmpty()) {
             out.append("excludes:\n");
             for (String exclude : options.excludes()) {

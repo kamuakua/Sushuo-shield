@@ -1,6 +1,7 @@
 package biz.sushuo.shield;
 
 enum ProtectionMode {
+    JVM_PHANTOM,
     SUSHUO1337,
     BALANCED,
     COMPAT,

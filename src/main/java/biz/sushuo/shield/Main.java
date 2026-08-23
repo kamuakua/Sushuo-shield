@@ -8,6 +8,10 @@ public final class Main {
 
     public static void main(String[] args) {
         try {
+            if (args.length == 1 && "--gui".equalsIgnoreCase(args[0])) {
+                GuiMain.launchWindow();
+                return;
+            }
             ObfuscationOptions options = CliParser.parse(args);
             ObfuscationResult result = new JarObfuscator().obfuscate(options);
             System.out.println("Sushuo Shield finished");
@@ -38,6 +42,7 @@ public final class Main {
             System.out.println(" anti-vm: " + options.antiVm());
             System.out.println(" license lock: " + (options.licenseHash() != 0));
             System.out.println(" method parameters: " + options.methodParameterObfuscation());
+            System.out.println(" jvm phantom: " + options.jvmPhantom());
         } catch (UsageException ex) {
             System.err.println(ex.getMessage());
             System.err.println();

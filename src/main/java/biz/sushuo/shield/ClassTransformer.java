@@ -33,6 +33,9 @@ final class ClassTransformer {
                 return;
             }
         }
+        if (options.encryptStrings() || options.obfuscateNumbers() || options.sdkMarkers()) {
+            StaticFieldInitializer.move(classNode);
+        }
         if (options.encryptResources() && !options.minecraftMode()) {
             ResourceAccessRewriter.rewrite(classNode, runtimeClassName);
         }

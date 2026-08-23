@@ -52,6 +52,9 @@ final class CliParser {
                 case "--resource-encryption", "--encrypt-resources" -> builder.encryptResources(true);
                 case "--no-resource-encryption", "--no-encrypt-resources" -> builder.encryptResources(false);
                 case "--require-native-vm", "--native-required" -> builder.requireNativeVm(true);
+                case "--no-require-native-vm", "--no-native-required" -> builder.requireNativeVm(false);
+                case "--jvm-phantom", "--phantom-jvm" -> builder.jvmPhantom(true);
+                case "--no-jvm-phantom" -> builder.jvmPhantom(false);
                 case "--keep-debug" -> builder.stripDebug(false);
                 case "--no-resource-rewrite" -> builder.rewriteTextResources(false);
                 default -> throw new UsageException("Unknown option: " + arg);
@@ -79,7 +82,7 @@ final class CliParser {
                 manifest/resource rewrite, and runtime decryptor injection.
 
                 Options:
-                  --preset/--mode <sushuo1337|balanced|compat|minecraft|minecraft-max|jnic|zkm26|vmprotect|vmp|stacked|max>
+                  --preset/--mode <sushuo1337|balanced|compat|minecraft|minecraft-max|jnic|zkm26|vmprotect|vmp|stacked|max|jvm>
                   --seed <long>
                   --report-file <path>          Write ZKM-style change log / mapping / protection report
                   --exclude <glob[,glob...]>       Examples: com.example.api.**, *Mixin*, module-info
@@ -101,6 +104,8 @@ final class CliParser {
                   --method-parameters / --no-method-parameters
                   --resource-encryption / --no-resource-encryption
                   --require-native-vm              Strongest: VM must run through embedded native runtime
+                  --no-require-native-vm           Allow Java VM fallback when supported
+                  --jvm-phantom                    Phantom-style JVM wrappers, field lowering, and member shuffling
                   --keep-debug
                   --no-resource-rewrite
                 """;
@@ -144,6 +149,29 @@ final class CliParser {
 
     private static void applyPreset(ObfuscationOptions.Builder builder, String preset) {
         switch (preset.toLowerCase()) {
+            case "jvm", "phantom-jvm", "phantom" -> {
+                builder.mode(ProtectionMode.JVM_PHANTOM)
+                        .jvmPhantom(true)
+                        .referenceObfuscation(true)
+                        .antiAiDeobfuscation(true)
+                        .sdkMarkers(true)
+                        .antiDebug(false)
+                        .antiVm(false)
+                        .methodParameterObfuscation(false)
+                        .renameClasses(true)
+                        .renameMembers(true)
+                        .renamePublicMembers(true)
+                        .encryptStrings(true)
+                        .obfuscateNumbers(true)
+                        .virtualize(true)
+                        .controlFlow(true)
+                        .stripDebug(true)
+                        .rewriteTextResources(true)
+                        .encryptResources(true)
+                        .requireNativeVm(false)
+                        .minecraftMode(false)
+                        .namePrefix("sushuo1337/sushuoprotect/jvm/");
+            }
             case "sushuo1337" -> {
                 builder.mode(ProtectionMode.SUSHUO1337)
                         .referenceObfuscation(false)
@@ -152,7 +180,8 @@ final class CliParser {
                         .sdkMarkers(false)
                         .antiDebug(false)
                         .antiVm(false)
-                        .methodParameterObfuscation(false);
+                        .methodParameterObfuscation(false)
+                        .jvmPhantom(true);
                 builder.renameClasses(true)
                         .renameMembers(true)
                         .renamePublicMembers(false)
@@ -173,7 +202,8 @@ final class CliParser {
                         .sdkMarkers(false)
                         .antiDebug(false)
                         .antiVm(false)
-                        .methodParameterObfuscation(false);
+                        .methodParameterObfuscation(false)
+                        .jvmPhantom(true);
                 builder.renameClasses(true)
                         .renameMembers(true)
                         .renamePublicMembers(false)
@@ -193,7 +223,8 @@ final class CliParser {
                         .sdkMarkers(false)
                         .antiDebug(false)
                         .antiVm(false)
-                        .methodParameterObfuscation(false);
+                        .methodParameterObfuscation(false)
+                        .jvmPhantom(false);
                 builder.renameClasses(false)
                         .renameMembers(false)
                         .renamePublicMembers(false)
@@ -213,7 +244,8 @@ final class CliParser {
                         .sdkMarkers(false)
                         .antiDebug(false)
                         .antiVm(false)
-                        .methodParameterObfuscation(false);
+                        .methodParameterObfuscation(false)
+                        .jvmPhantom(false);
                 builder.renameClasses(true)
                         .renameMembers(true)
                         .renamePublicMembers(false)
@@ -234,7 +266,8 @@ final class CliParser {
                         .sdkMarkers(false)
                         .antiDebug(false)
                         .antiVm(false)
-                        .methodParameterObfuscation(false);
+                        .methodParameterObfuscation(false)
+                        .jvmPhantom(false);
                 builder.renameClasses(true)
                         .renameMembers(true)
                         .renamePublicMembers(false)
@@ -265,6 +298,7 @@ final class CliParser {
                         .antiDebug(false)
                         .antiVm(false)
                         .methodParameterObfuscation(false)
+                        .jvmPhantom(true)
                         .rewriteTextResources(true)
                         .encryptResources(true)
                         .requireNativeVm(true)
@@ -288,6 +322,7 @@ final class CliParser {
                         .antiDebug(false)
                         .antiVm(false)
                         .methodParameterObfuscation(true)
+                        .jvmPhantom(true)
                         .rewriteTextResources(true)
                         .encryptResources(true)
                         .requireNativeVm(false)
@@ -311,6 +346,7 @@ final class CliParser {
                         .antiDebug(true)
                         .antiVm(true)
                         .methodParameterObfuscation(false)
+                        .jvmPhantom(true)
                         .rewriteTextResources(true)
                         .encryptResources(true)
                         .requireNativeVm(true)
@@ -334,6 +370,7 @@ final class CliParser {
                         .antiDebug(true)
                         .antiVm(true)
                         .methodParameterObfuscation(true)
+                        .jvmPhantom(true)
                         .rewriteTextResources(true)
                         .encryptResources(true)
                         .requireNativeVm(true)
@@ -348,7 +385,8 @@ final class CliParser {
                         .sdkMarkers(true)
                         .antiDebug(true)
                         .antiVm(true)
-                        .methodParameterObfuscation(true);
+                        .methodParameterObfuscation(true)
+                        .jvmPhantom(true);
                 builder.renameClasses(true)
                         .renameMembers(true)
                         .renamePublicMembers(true)
